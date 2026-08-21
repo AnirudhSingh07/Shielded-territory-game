@@ -3,9 +3,9 @@ import type { WarState } from '../../types';
 
 /**
  * Progressive-enhancement fallback for browsers/devices without WebGL.
- * Same radial siege-map mapping as the 3D scene (fort at center, front-line
- * radius from the real shielded fraction, army "strength" as dot counts)
- * rendered with plain 2D canvas so the app never hard-fails to a blank screen.
+ * Same linear two-fort mapping as the 3D scene (front line position, army
+ * "strength" as dot counts) rendered with plain 2D canvas so the app never
+ * hard-fails to a blank screen.
  */
 export default function Canvas2DBattlefield({ state }: { state: WarState }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -34,56 +34,41 @@ export default function Canvas2DBattlefield({ state }: { state: WarState }) {
       const t = (now - start) / 1000;
       const w = canvas.width;
       const h = canvas.height;
-      const cx = w / 2;
-      const cy = h / 2;
-      const maxR = Math.min(w, h) * 0.46;
       const s = stateRef.current;
 
       ctx.fillStyle = '#05070a';
       ctx.fillRect(0, 0, w, h);
 
-      const frontR = maxR * (0.18 + s.frontLine * 0.75);
+      const frontX = w * (0.08 + s.frontLine * 0.84);
 
-      // shielded disc (inside), transparent field (outside)
-      const shieldGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, frontR);
-      shieldGrad.addColorStop(0, 'rgba(0,229,160,0.28)');
-      shieldGrad.addColorStop(1, 'rgba(0,229,160,0.08)');
+      const shieldGrad = ctx.createLinearGradient(frontX, 0, w, 0);
+      shieldGrad.addColorStop(0, 'rgba(0,229,160,0.05)');
+      shieldGrad.addColorStop(1, 'rgba(0,229,160,0.22)');
       ctx.fillStyle = shieldGrad;
-      ctx.beginPath();
-      ctx.arc(cx, cy, frontR, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(frontX, 0, w - frontX, h);
 
-      ctx.fillStyle = 'rgba(255,59,92,0.08)';
-      ctx.fillRect(0, 0, w, h);
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.arc(cx, cy, frontR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      const transGrad = ctx.createLinearGradient(0, 0, frontX, 0);
+      transGrad.addColorStop(0, 'rgba(255,59,92,0.22)');
+      transGrad.addColorStop(1, 'rgba(255,59,92,0.05)');
+      ctx.fillStyle = transGrad;
+      ctx.fillRect(0, 0, frontX, h);
 
-      // front ring
+      // front line
       const pulse = 0.5 + 0.5 * Math.sin(t * 3);
       ctx.strokeStyle = s.momentum >= 0 ? `rgba(0,229,160,${0.6 + pulse * 0.4})` : `rgba(255,59,92,${0.6 + pulse * 0.4})`;
       ctx.lineWidth = 3 * devicePixelRatio;
       ctx.beginPath();
-      ctx.arc(cx, cy, frontR, 0, Math.PI * 2);
+      ctx.moveTo(frontX, 0);
+      ctx.lineTo(frontX, h);
       ctx.stroke();
 
-      // fort
-      ctx.fillStyle = '#00e5a0';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 10 * devicePixelRatio, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(0,229,160,0.5)';
-      ctx.lineWidth = 2 * devicePixelRatio;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 16 * devicePixelRatio + Math.sin(t * 1.5) * 2, 0, Math.PI * 2);
-      ctx.stroke();
+      // the two forts
+      drawFort(ctx, w * 0.92, h / 2, '#00e5a0', t);
+      drawFort(ctx, w * 0.08, h / 2, '#ff3b5c', t);
 
-      // armies as scattered dots at random radii/angles, seeded stable per side
-      drawArmy(ctx, cx, cy, 16, frontR - 14, s.supply.shieldedFraction, '#00e5a0', 11, t);
-      drawArmy(ctx, cx, cy, frontR + 14, maxR, 1 - s.supply.shieldedFraction, '#ff3b5c', 99, t);
+      // armies as scattered dots, density scaled by real supply share
+      drawArmy(ctx, frontX, w, h, s.supply.shieldedFraction, '#00e5a0', 1, t);
+      drawArmy(ctx, frontX, 0, h, 1 - s.supply.shieldedFraction, '#ff3b5c', -1, t);
 
       raf = requestAnimationFrame(draw);
     };
@@ -98,19 +83,33 @@ export default function Canvas2DBattlefield({ state }: { state: WarState }) {
   return <canvas ref={canvasRef} className="h-full w-full" />;
 }
 
-function drawArmy(ctx: CanvasRenderingContext2D, cx: number, cy: number, rMin: number, rMax: number, share: number, color: string, seed: number, t: number) {
-  const count = Math.round(30 + share * 220);
-  const rng = mulberry32(seed);
+function drawFort(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, t: number) {
   ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 12 * devicePixelRatio, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.5;
+  ctx.lineWidth = 2 * devicePixelRatio;
+  ctx.beginPath();
+  ctx.arc(x, y, 20 * devicePixelRatio + Math.sin(t * 1.5) * 2, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawArmy(ctx: CanvasRenderingContext2D, fromX: number, toX: number, h: number, share: number, color: string, dir: number, t: number) {
+  const count = Math.round(30 + share * 220);
+  const rng = mulberry32(dir > 0 ? 11 : 99);
+  ctx.fillStyle = color;
+  const bandWidth = Math.abs(toX - fromX) * 0.85;
   for (let i = 0; i < count; i++) {
-    const angle = rng() * Math.PI * 2;
-    const radius = rMin + rng() * Math.max(1, rMax - rMin);
+    const depth = rng();
+    const x = fromX + dir * depth * bandWidth;
+    const y = rng() * h;
     const bob = Math.sin(t * 2 + i) * 2;
-    const x = cx + Math.cos(angle) * radius;
-    const y = cy + Math.sin(angle) * radius + bob;
-    ctx.globalAlpha = 0.5 + 0.5 * (1 - (radius - rMin) / Math.max(1, rMax - rMin));
+    ctx.globalAlpha = 0.55 + 0.45 * (1 - depth);
     ctx.beginPath();
-    ctx.arc(x, y, 2.4 * devicePixelRatio, 0, Math.PI * 2);
+    ctx.arc(x, y + bob, 2.4 * devicePixelRatio, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;

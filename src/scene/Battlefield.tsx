@@ -2,29 +2,29 @@ import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import './materials/TerrainMaterial';
-import { FIELD_OUTER_MARGIN } from '../logic/mapping';
+import { FIELD_DEPTH, FIELD_HALF_WIDTH } from '../logic/mapping';
 
 interface Props {
-  frontRadius: number;
+  frontLineWorldX: number;
 }
 
-/** The abstract siege-map ground plane, centered on the Shielded Fort. Not a real-world map. */
-export default function Battlefield({ frontRadius }: Props) {
-  const matRef = useRef<THREE.ShaderMaterial & { uFrontRadius: number; uTime: number }>(null);
-  const smoothed = useRef(frontRadius);
+/** The battlefield ground between the two forts. */
+export default function Battlefield({ frontLineWorldX }: Props) {
+  const matRef = useRef<THREE.ShaderMaterial & { uFrontLine: number; uTime: number }>(null);
+  const smoothedFront = useRef(frontLineWorldX);
 
   useFrame((_, delta) => {
-    smoothed.current += (frontRadius - smoothed.current) * Math.min(1, delta * 1.5);
+    smoothedFront.current += (frontLineWorldX - smoothedFront.current) * Math.min(1, delta * 1.5);
     if (matRef.current) {
-      matRef.current.uFrontRadius = smoothed.current;
+      matRef.current.uFrontLine = smoothedFront.current;
       matRef.current.uTime += delta;
     }
   });
 
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}>
-      <circleGeometry args={[FIELD_OUTER_MARGIN, 96]} />
-      <terrainMaterial ref={matRef} uFrontRadius={frontRadius} />
+      <planeGeometry args={[FIELD_HALF_WIDTH * 2 + 16, FIELD_DEPTH + 10, 1, 1]} />
+      <terrainMaterial ref={matRef} uFrontLine={frontLineWorldX} />
     </mesh>
   );
 }

@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import TransactionCourier from './TransactionCourier';
-import { magnitudeToEffectScale } from '../../logic/mapping';
-import { FORT_RADIUS } from '../../logic/mapping';
+import CannonFlash from './CannonFlash';
+import { isMajorEvent, magnitudeToEffectScale, SHIELD_FORT_X, TRANSPARENT_FORT_X } from '../../logic/mapping';
 import type { BattleEvent } from '../../types';
 import { useUIStore } from '../../state/uiStore';
-import { playAlertHit, playShieldChime } from '../../audio/soundManager';
+import { playAlertHit, playCannonBoom, playShieldChime } from '../../audio/soundManager';
+import { triggerShake } from '../cameraShake';
 
 interface Props {
   events: BattleEvent[];
-  frontRadius: number;
   shieldColor: THREE.ColorRepresentation;
   transparentColor: THREE.ColorRepresentation;
 }
@@ -21,21 +21,34 @@ interface LiveCourier {
   color: THREE.ColorRepresentation;
   particleCount: number;
   scale: number;
+  major: boolean;
+}
+
+interface LiveFlash {
+  key: string;
+  position: [number, number, number];
+  color: THREE.ColorRepresentation;
+  scale: number;
 }
 
 const MAX_CONCURRENT = 10;
+const GATE_Z_SPREAD = 2.6;
 
-function pointOnCircle(radius: number, angle: number): [number, number, number] {
-  return [Math.cos(angle) * radius, 0, Math.sin(angle) * radius];
+function gatePoint(x: number): [number, number, number] {
+  return [x, 0.3, (Math.random() - 0.5) * GATE_Z_SPREAD];
 }
 
 /**
  * Watches the real transaction feed and spawns one courier per newly-seen
- * event — this is the literal, visible "a real shielding/unshielding
- * transaction just happened" moment, not a generic periodic effect.
+ * event, running the length of the field between the two forts — this is
+ * the literal, visible "a real shielding/unshielding transaction just
+ * happened" moment. Large transactions additionally get a cannon-flash
+ * launch and a camera shake for extra "war effect" punch.
  */
-export default function EventEffectsManager({ events, frontRadius, shieldColor, transparentColor }: Props) {
-  const [live, setLive] = useState<LiveCourier[]>([]);
+export default function EventEffectsManager({ events, shieldColor, transparentColor }: Props) {
+  // Couriers + flashes are kept as one state object (rather than two separate useState calls)
+  // so a new batch of real events triggers exactly one re-render, not two.
+  const [live, setLive] = useState<{ couriers: LiveCourier[]; flashes: LiveFlash[] }>({ couriers: [], flashes: [] });
   const seenIds = useRef<Set<string>>(new Set());
   const soundOn = useUIStore((s) => s.soundOn);
   const intensity = useUIStore((s) => s.intensity);
@@ -47,35 +60,43 @@ export default function EventEffectsManager({ events, frontRadius, shieldColor, 
     fresh.forEach((e) => seenIds.current.add(e.id));
 
     const intensityMul = intensity === 'low' ? 0.5 : intensity === 'high' ? 1.6 : 1;
-    const spawned: LiveCourier[] = fresh.slice(0, 4).map((e) => {
+    const newCouriers: LiveCourier[] = [];
+    const newFlashes: LiveFlash[] = [];
+
+    fresh.slice(0, 4).forEach((e) => {
       const { particles, scale } = magnitudeToEffectScale(e.magnitude);
-      const angle = Math.random() * Math.PI * 2;
-      const outerPoint = pointOnCircle(frontRadius + 3 + Math.random() * 9, angle + (Math.random() - 0.5) * 0.6);
-      const gatePoint = pointOnCircle(FORT_RADIUS - 0.3, angle);
       const isShield = e.side === 'shield';
       const color = isShield ? shieldColor : transparentColor;
+      const fromX = isShield ? TRANSPARENT_FORT_X : SHIELD_FORT_X;
+      const toX = isShield ? SHIELD_FORT_X : TRANSPARENT_FORT_X;
+      const from = gatePoint(fromX);
+      const to = gatePoint(toX);
+      const major = isMajorEvent(e.magnitude);
+
+      newCouriers.push({ key: e.id, from, to, color, particleCount: Math.round(particles * intensityMul), scale: scale * intensityMul, major });
+
+      if (major) {
+        newFlashes.push({ key: `${e.id}_flash`, position: from, color, scale: scale * intensityMul });
+        triggerShake(0.35 + e.magnitude * 0.5);
+      }
+
       if (soundOn) {
-        if (isShield) playShieldChime(e.magnitude);
+        if (major) playCannonBoom(e.magnitude);
+        else if (isShield) playShieldChime(e.magnitude);
         else playAlertHit(e.magnitude);
       }
-      return {
-        key: e.id,
-        from: isShield ? outerPoint : gatePoint,
-        to: isShield ? gatePoint : outerPoint,
-        color,
-        particleCount: Math.round(particles * intensityMul),
-        scale: scale * intensityMul,
-      };
     });
 
-    setLive((prev) => [...prev, ...spawned].slice(-MAX_CONCURRENT));
-    // Deliberately keyed on `events` only — frontRadius/colors/sound/intensity are read
-    // at spawn-time via closure and shouldn't retrigger a re-scan of the event list.
+    setLive((prev) => ({
+      couriers: [...prev.couriers, ...newCouriers].slice(-MAX_CONCURRENT),
+      flashes: newFlashes.length ? [...prev.flashes, ...newFlashes].slice(-MAX_CONCURRENT) : prev.flashes,
+    }));
+    // Deliberately keyed on `events` only — colors/sound/intensity are read at spawn-time via closure.
   }, [events]);
 
   return (
     <>
-      {live.map((c) => (
+      {live.couriers.map((c) => (
         <TransactionCourier
           key={c.key}
           from={c.from}
@@ -83,7 +104,16 @@ export default function EventEffectsManager({ events, frontRadius, shieldColor, 
           color={c.color}
           scale={c.scale}
           particleCount={c.particleCount}
-          onDone={() => setLive((prev) => prev.filter((f) => f.key !== c.key))}
+          onDone={() => setLive((prev) => ({ ...prev, couriers: prev.couriers.filter((f) => f.key !== c.key) }))}
+        />
+      ))}
+      {live.flashes.map((f) => (
+        <CannonFlash
+          key={f.key}
+          position={f.position}
+          color={f.color}
+          scale={f.scale}
+          onDone={() => setLive((prev) => ({ ...prev, flashes: prev.flashes.filter((x) => x.key !== f.key) }))}
         />
       ))}
     </>

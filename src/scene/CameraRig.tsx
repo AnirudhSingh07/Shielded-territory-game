@@ -4,18 +4,18 @@ import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import { useUIStore } from '../state/uiStore';
+import { getShakeOffset } from './cameraShake';
 
-const DEFAULT_POSITION = new THREE.Vector3(0, 22, 34);
+const DEFAULT_POSITION = new THREE.Vector3(0, 26, 42);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
 const PAN_SPEED = 18;
 
 /**
  * Orbit + free-look camera: mouse/touch drag to orbit, scroll to zoom, WASD
  * to pan, slow automatic orbit when idle (paused on user interaction,
- * resumed a couple seconds after they let go), and a reset-to-default
- * driven by uiStore.cameraResetToken. The siege map is centered on the
- * fort at the origin, so idle auto-orbit just circles that fixed point —
- * no need to chase a moving front line anymore.
+ * resumed a couple seconds after they let go), a reset-to-default driven by
+ * uiStore.cameraResetToken, and a screen-shake kick (cameraShake.ts) applied
+ * on top of whatever OrbitControls computed, for major real-transaction events.
  */
 export default function CameraRig() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
@@ -92,6 +92,13 @@ export default function CameraRig() {
     }
 
     controls.update();
+
+    const shake = getShakeOffset(performance.now());
+    if (shake.x || shake.y || shake.z) {
+      camera.position.x += shake.x;
+      camera.position.y += shake.y;
+      camera.position.z += shake.z;
+    }
   });
 
   return (

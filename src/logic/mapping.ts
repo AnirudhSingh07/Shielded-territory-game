@@ -4,22 +4,26 @@
  * shielded % actually look like" logic is easy to read, test, and tune in
  * one place.
  *
- * World-space convention: a circular siege map centered on the origin.
- * The Shielded Fort sits at the center; shielded (green) territory is the
- * disc around it, transparent (red) territory is the ring beyond the front
- * line. `frontLine` (0..1, the live shielded fraction) maps onto the radius
- * of that boundary — the more of the supply that's shielded, the further
- * out the green territory (and the red army) gets pushed.
+ * World-space convention: a linear battlefield along the X axis, a fort at
+ * each end — the green Shielded Fort at +X, the red Transparent Fort at -X
+ * — with a live front line between them. `frontLine` (0..1, the live
+ * shielded fraction) maps onto the line's X position: 0 pins it at the
+ * transparent fort's doorstep (red controls the whole field), 1 pins it at
+ * the shielded fort's doorstep (green controls the whole field).
  */
 
-export const FORT_RADIUS = 4.5;
-export const FIELD_MIN_RADIUS = FORT_RADIUS + 3; // closest the front line can approach the fort
-export const FIELD_MAX_RADIUS = 34; // outer edge of the playable field / fully-transparent extreme
-export const FIELD_OUTER_MARGIN = 42; // ground plane extends a bit past the field for a horizon
+export const FIELD_HALF_WIDTH = 32;
+export const FIELD_DEPTH = 30;
+export const FORT_MARGIN = 5; // how far each fort sits back from its edge of the field
+export const SHIELD_FORT_X = FIELD_HALF_WIDTH - FORT_MARGIN;
+export const TRANSPARENT_FORT_X = -FIELD_HALF_WIDTH + FORT_MARGIN;
+const LINE_MARGIN = 4; // closest the front line can approach either fort
 
-export function frontLineToRadius(frontLine: number): number {
+export function frontLineToWorldX(frontLine: number): number {
   const f = clamp(frontLine, 0, 1);
-  return FIELD_MIN_RADIUS + f * (FIELD_MAX_RADIUS - FIELD_MIN_RADIUS);
+  const lo = TRANSPARENT_FORT_X + LINE_MARGIN;
+  const hi = SHIELD_FORT_X - LINE_MARGIN;
+  return lo + f * (hi - lo);
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -40,7 +44,7 @@ export function zecToUnitCount(zec: number, opts: { min: number; max: number; re
   return Math.round(clamp(min + scaled * (max - min), min, max));
 }
 
-/** Fog of war recedes outward from the fort as the shielded fraction grows — it's unmapped/unshielded territory, not literal visibility. */
+/** Fog of war thins out over whichever side currently has the upper hand. */
 export function shieldedFractionToFogOpacity(fraction: number): number {
   return clamp(1 - fraction * 1.1, 0.1, 1);
 }
@@ -49,20 +53,25 @@ export function momentumToCameraDrift(momentum: number): number {
   return momentum * 0.6;
 }
 
-/** BattleEvent magnitude (0..1, log-scaled from the real transaction's ZEC size) -> courier/VFX scale. */
+/** BattleEvent magnitude (0..1, log-scaled from the real transaction's ZEC size) -> courier/VFX/shake scale. */
 export function magnitudeToEffectScale(magnitude: number): { particles: number; scale: number; shake: number } {
   const m = clamp(magnitude, 0, 1);
   return {
-    particles: Math.round(16 + m * 110),
-    scale: 0.55 + m * 2.2,
-    shake: m * 0.3,
+    particles: Math.round(16 + m * 130),
+    scale: 0.55 + m * 2.4,
+    shake: m * 0.4,
   };
+}
+
+/** Only genuinely large real transactions earn cannon fire + camera shake, so it stays a "big event" cue. */
+export function isMajorEvent(magnitude: number): boolean {
+  return magnitude > 0.45;
 }
 
 export const momentumLabels: Record<string, string> = {
   'privacy-surge': 'PRIVACY SURGE — mass shielding underway',
   'privacy-advancing': 'Privacy Advancing',
-  stalemate: 'Stalemate at the walls',
+  stalemate: 'Stalemate on the front',
   'transparent-counter': 'Transparent Counter-Attack',
   'transparent-surge': 'TRANSPARENT BREAKTHROUGH — mass unshielding',
 };

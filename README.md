@@ -1,12 +1,13 @@
 # Shielded Territory War
 
 A live, theatrical, single-page visualization of Zcash's transparent vs.
-shielded pool dynamics: a Shielded Fort at the center of a siege map,
-defended by a garrison of green privacy zebras, besieged by a red
-transparent-pool horde — and every courier zebra that runs between them is a
-**real, individual on-chain Zcash transaction**, animated the moment it's
-observed. Built with **Vite + React + TypeScript + Three.js
-(`@react-three/fiber`) + Tailwind CSS v4 + Zustand**.
+shielded pool dynamics: a green Shielded Fort and a red Transparent Fort
+face off across a live front line, each garrisoned by an army of zebras
+whose numbers track the real ZEC on that side — and every courier zebra
+that runs between the two forts is a **real, individual on-chain Zcash
+transaction**, complete with cannon-flash launch and camera shake for the
+big ones, animated the moment it's observed. Built with **Vite + React +
+TypeScript + Three.js (`@react-three/fiber`) + Tailwind CSS v4 + Zustand**.
 
 > **This is a theatrical visualization of public on-chain data. Not financial
 > advice.** No wallet connection, no trading, no login.
@@ -36,10 +37,10 @@ observed. Built with **Vite + React + TypeScript + Three.js
                   ▼                            ▼
          ┌──────────────────┐        ┌─────────────────────┐
          │ src/scene/*        │        │ src/ui/*              │
-         │ Fort at the center, │        │ HUD panels: stats,     │
-         │ zebra armies, fog,  │        │ flows, momentum banner,│
-         │ front ring, courier │        │ activity feed (links to │
-         │ VFX per real tx     │        │ the real tx), controls   │
+         │ Two forts, zebra    │        │ HUD panels: stats,     │
+         │ armies, fog, front  │        │ flows, momentum banner,│
+         │ line, courier +     │        │ activity feed (links to │
+         │ cannon VFX per tx   │        │ the real tx), controls   │
          └──────────────────┘        └─────────────────────┘
 ```
 
@@ -87,24 +88,31 @@ so far (e.g. "17 real tx · 1.4h so far") instead of being padded out.
 
 All of this lives in `src/logic/mapping.ts`, fully commented:
 
-- **Front-line radius** — the live shielded fraction (0..1) maps linearly
-  onto a radius around the Shielded Fort at the origin
-  (`frontLineToRadius`). Inside that radius is green (shielded) territory;
-  outside is red (transparent) territory. More shielded → the green
-  territory pushes further out, further from the fort.
+- **Front line** — the live shielded fraction (0..1) maps linearly onto an
+  X position between the two forts (`frontLineToWorldX`): the green
+  Shielded Fort at +X, the red Transparent Fort at -X. More shielded → the
+  line pushes toward the transparent fort's doorstep.
 - **Army size** — each side's absolute ZEC amount is compressed with a
   square-root scale and clamped to a render-friendly instance count
   (`zecToUnitCount`), so the visual delta between e.g. 30% and 35% shielded
   is legible without rendering millions of zebras or letting a supply
-  outlier blow up the scene.
-- **Fog of war** — recedes outward from the fort as `shieldedFraction` grows
-  (`shieldedFractionToFogOpacity`); it represents "unshielded/unmapped"
+  outlier blow up the scene. Both armies stand between their home fort and
+  the front line, facing the enemy across it.
+- **Fog of war** — thins out over whichever side currently has the upper
+  hand (`shieldedFractionToFogOpacity`); it represents "unmapped/unprotected"
   territory, not literal visibility.
 - **Courier zebras** — every real BattleEvent spawns one `TransactionCourier`
-  running between a random point in the outer field and the fort gate
-  (inward for shielding, outward for unshielding). Its scale is a log-scaled
-  function of the real transaction's ZEC size (`magnitudeToEffectScale`), so
-  a dust-sized shield and a 50+ ZEC shield both register, proportionally.
+  that physically runs the length of the field between the two forts:
+  Transparent Fort → Shielded Fort for a shielding transaction, the reverse
+  for unshielding. Its scale is a log-scaled function of the real
+  transaction's ZEC size (`magnitudeToEffectScale`), so a dust-sized shield
+  and a 50+ ZEC shield both register, proportionally.
+- **War effects** — transactions above a magnitude threshold
+  (`isMajorEvent`) also get a `CannonFlash` muzzle-flash at the launching
+  fort and a screen-shake kick (`scene/cameraShake.ts`, read every frame by
+  `CameraRig`, written by `EventEffectsManager` — plain module state, not
+  React, so a shake never forces a re-render) — the "big real transaction
+  just landed" beat.
 - **Momentum** — `RealFlowEngine#getMomentum` sums real deltas over the last
   30 real minutes and classifies into `privacy-surge / privacy-advancing /
   stalemate / transparent-counter / transparent-surge`.
@@ -128,13 +136,15 @@ src/
   state/
     uiStore.ts                    Zustand: sound/camera/intensity/disclaimer prefs
   scene/                          Three.js / @react-three/fiber
-    Scene.tsx, Fort.tsx, Battlefield.tsx, FogOfWar.tsx, FrontRing.tsx, Army.tsx, CameraRig.tsx
+    Scene.tsx, Fort.tsx (x2, one per side), Battlefield.tsx, FogOfWar.tsx,
+    FrontLine.tsx, Army.tsx, CameraRig.tsx, cameraShake.ts
     geometry/zebraGeometry.ts     Merged low-poly "cute zebra" BufferGeometry (instanced)
-    materials/                    Custom GLSL shaders (terrain, fog, front ring)
-    effects/                      TransactionCourier, Explosion, event manager
+    materials/                    Custom GLSL shaders (terrain, fog)
+    effects/                      TransactionCourier, CannonFlash, Explosion, event manager
     fallback/Canvas2DBattlefield.tsx   2D canvas fallback if WebGL is unavailable
   ui/                             HUD panels (stats, flows, momentum, feed, controls...)
-  audio/soundManager.ts           Fully synthesized Web Audio SFX (no audio files)
+  audio/soundManager.ts           Fully synthesized Web Audio SFX: ambient drone + distant
+                                    rumble, shield chime, unshield alert, cannon boom
   hooks/, utils/                  Small shared helpers
 ```
 
@@ -188,7 +198,7 @@ Upload the contents of `dist/` after running `npm run build`.
 
 - **WebGL fallback:** `src/hooks/useWebGLSupport.ts` feature-detects WebGL;
   if unavailable, `src/scene/fallback/Canvas2DBattlefield.tsx` renders the
-  same radial siege-map data with plain 2D canvas instead of a blank screen.
+  same two-fort/front-line data with plain 2D canvas instead of a blank screen.
 - **Provider fallback:** if CoinMetrics is unreachable, total supply falls
   back to the last known good value, then to a documented hardcoded
   baseline; if the transaction backfill is slow or a page fails, the engine
@@ -208,9 +218,9 @@ Upload the contents of `dist/` after running `npm run build`.
 ## 6. Controls
 
 - **Drag** to orbit, **scroll** to zoom, **W A S D** to pan.
-- Camera slowly auto-orbits around the fort when idle; any drag pauses it
-  for a few seconds.
-- Top-right panel: sound toggle, camera reset, and effect-intensity
-  (low/normal/high).
+- Camera slowly auto-orbits when idle; any drag pauses it for a few seconds.
+- Top-right panel: sound toggle (ambient battlefield drone + shield chimes/
+  unshield alerts/cannon booms on real events), camera reset, and
+  effect-intensity (low/normal/high).
 - Click any line in the Live Activity feed to open that real transaction on
   a block explorer.

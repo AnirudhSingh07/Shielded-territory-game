@@ -17,10 +17,11 @@ const SPEED = 10; // world units / second
 
 /**
  * The visual heart of "this is real, not simulated": one courier zebra per
- * real on-chain transaction, physically running between the fort gate and
- * the outer field. Shielding transactions run inward and vanish into the
- * fort in a green flash; unshielding transactions emerge from the fort and
- * run outward, fading into a red flash at the tree line.
+ * real on-chain transaction, physically running the length of the field
+ * between the two forts the moment it's observed. Shielding transactions
+ * run from the Transparent Fort to the Shielded Fort; unshielding runs the
+ * other way. Arrival triggers an Explosion (and, for large transactions,
+ * EventEffectsManager also fires a cannon flash + camera shake).
  */
 export default function TransactionCourier({ from, to, color, scale, particleCount, onDone }: Props) {
   const groupRef = useRef<THREE.Group>(null); // position + facing only — Explosion (a sibling) needs an un-shrunk frame
@@ -33,7 +34,10 @@ export default function TransactionCourier({ from, to, color, scale, particleCou
   const end = new THREE.Vector3(...to);
   const distance = start.distanceTo(end);
   const duration = THREE.MathUtils.clamp(distance / SPEED, 0.7, 3.2);
-  const facing = Math.atan2(end.z - start.z, end.x - start.x) + Math.PI / 2;
+  // The zebra geometry's local forward is -X (see zebraGeometry.ts's final rotateY(PI)); solving
+  // for the rotation.y that points that vector along the real travel direction (dx, dz) gives
+  // atan2(dz, -dx) rather than the more common atan2(dz, dx) you'd use for a +X-forward model.
+  const facing = Math.atan2(end.z - start.z, -(end.x - start.x));
 
   useFrame((_, delta) => {
     if (arrived || !groupRef.current) return;

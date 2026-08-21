@@ -1,8 +1,10 @@
 /**
  * Fully synthesized audio via the Web Audio API — no external sound files to
  * fetch/host, which keeps the app a single static bundle. Everything here is
- * generated at runtime: a low ambient drone + filtered noise bed, and short
- * procedural stingers for shield surges / unshield attacks.
+ * generated at runtime: a low ambient battlefield drone + filtered noise bed
+ * with occasional distant-rumble flavor hits, short procedural stingers for
+ * shield surges / unshield attacks, and a deeper cannon boom for major
+ * (large real-transaction) events.
  */
 
 let ctx: AudioContext | null = null;
@@ -35,6 +37,26 @@ export function setMasterVolume(v: number) {
   if (masterGain) masterGain.gain.value = v;
 }
 
+/** A single soft, distant thump — part of the idle battlefield atmosphere, not tied to any real event. */
+function playDistantRumble() {
+  const c = getCtx();
+  const now = c.currentTime;
+  const osc = c.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(70 + Math.random() * 20, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + 1.1);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(0.05, now + 0.08);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+  const filter = c.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 300;
+  osc.connect(filter).connect(g).connect(masterGain!);
+  osc.start(now);
+  osc.stop(now + 1.5);
+}
+
 export function startAmbient() {
   const c = getCtx();
   if (c.state === 'suspended') void c.resume();
@@ -65,8 +87,21 @@ export function startAmbient() {
   drone.start();
   lfo.start();
 
+  let rumbleTimer: ReturnType<typeof setTimeout>;
+  const scheduleRumble = () => {
+    rumbleTimer = setTimeout(
+      () => {
+        playDistantRumble();
+        scheduleRumble();
+      },
+      18_000 + Math.random() * 20_000,
+    );
+  };
+  scheduleRumble();
+
   ambientNodes = {
     stop: () => {
+      clearTimeout(rumbleTimer);
       noiseSrc.stop();
       drone.stop();
       lfo.stop();
@@ -117,6 +152,38 @@ export function playAlertHit(magnitude: number) {
   osc.connect(filter).connect(g).connect(masterGain!);
   osc.start(now);
   osc.stop(now + 0.65);
+}
+
+/** Deep boom + crack transient — a major (large real-transaction) event launching from a fort. */
+export function playCannonBoom(magnitude: number) {
+  const c = getCtx();
+  const now = c.currentTime;
+  const peak = 0.16 + magnitude * 0.22;
+
+  // low thump
+  const thump = c.createOscillator();
+  thump.type = 'sine';
+  thump.frequency.setValueAtTime(110, now);
+  thump.frequency.exponentialRampToValueAtTime(35, now + 0.5);
+  const thumpGain = c.createGain();
+  thumpGain.gain.setValueAtTime(peak, now);
+  thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+  thump.connect(thumpGain).connect(masterGain!);
+  thump.start(now);
+  thump.stop(now + 0.95);
+
+  // noise crack transient
+  const crack = c.createBufferSource();
+  crack.buffer = noiseBuffer(c, 0.3);
+  const crackFilter = c.createBiquadFilter();
+  crackFilter.type = 'highpass';
+  crackFilter.frequency.value = 900;
+  const crackGain = c.createGain();
+  crackGain.gain.setValueAtTime(peak * 0.7, now);
+  crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+  crack.connect(crackFilter).connect(crackGain).connect(masterGain!);
+  crack.start(now);
+  crack.stop(now + 0.2);
 }
 
 export function playUiTick() {
