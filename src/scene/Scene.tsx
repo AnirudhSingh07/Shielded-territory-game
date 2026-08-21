@@ -28,8 +28,9 @@ export default function Scene({ state }: { state: WarState }) {
   const shieldUnits = zecToUnitCount(state.supply.shieldedZec, { min: 30, max: 300, refZec: state.supply.totalSupply * 0.55 });
   const transparentUnits = zecToUnitCount(state.supply.transparentZec, { min: 30, max: 300, refZec: state.supply.totalSupply * 0.55 });
 
-  const shieldPush = Math.max(0, state.momentum);
-  const transparentPush = Math.max(0, -state.momentum);
+  // signed war fortune per side, from real momentum: shield gains on positive momentum, transparent on negative
+  const shieldAdvance = state.momentum;
+  const transparentAdvance = -state.momentum;
 
   return (
     <Canvas
@@ -70,8 +71,8 @@ export default function Scene({ state }: { state: WarState }) {
       <Fort side="shield" x={SHIELD_FORT_X} />
       <Fort side="transparent" x={TRANSPARENT_FORT_X} />
 
-      <Army side="shield" count={shieldUnits} frontLineWorldX={frontLineWorldX} push={shieldPush} />
-      <Army side="transparent" count={transparentUnits} frontLineWorldX={frontLineWorldX} push={transparentPush} />
+      <Army side="shield" count={shieldUnits} frontLineWorldX={frontLineWorldX} advance={shieldAdvance} />
+      <Army side="transparent" count={transparentUnits} frontLineWorldX={frontLineWorldX} advance={transparentAdvance} />
 
       <GrowthMonument
         sessionNetShieldedZec={state.sessionNetShieldedZec}

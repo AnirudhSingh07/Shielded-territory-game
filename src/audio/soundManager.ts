@@ -199,3 +199,127 @@ export function playUiTick() {
   osc.start(now);
   osc.stop(now + 0.09);
 }
+
+/* ---------------------------------------------------------------------------
+ * AMBIENT BATTLE AUDIO — cosmetic set-dressing for the continuous firefight.
+ * Deliberately kept LOW in the mix (well under the real-event stingers above)
+ * so a confirmed transaction's chime / cannon boom still cuts through clearly.
+ * Nothing here is tied to transaction data.
+ * ------------------------------------------------------------------------- */
+
+let battleNodes: { stop: () => void } | null = null;
+
+export function startBattleAmbience() {
+  const c = getCtx();
+  if (c.state === 'suspended') void c.resume();
+  if (battleNodes) return;
+
+  // continuous distant-crackle bed: looping noise, bandpassed, with a fluttering tremolo
+  const bed = c.createBufferSource();
+  bed.buffer = noiseBuffer(c, 3);
+  bed.loop = true;
+  const bedFilter = c.createBiquadFilter();
+  bedFilter.type = 'bandpass';
+  bedFilter.frequency.value = 1100;
+  bedFilter.Q.value = 0.7;
+  const bedGain = c.createGain();
+  bedGain.gain.value = 0.03;
+  const tremolo = c.createOscillator();
+  tremolo.type = 'sawtooth';
+  tremolo.frequency.value = 11;
+  const tremGain = c.createGain();
+  tremGain.gain.value = 0.02;
+  tremolo.connect(tremGain).connect(bedGain.gain);
+  bed.connect(bedFilter).connect(bedGain).connect(masterGain!);
+  bed.start();
+  tremolo.start();
+
+  // scheduled small-arms "pops" at irregular fast intervals
+  let popTimer: ReturnType<typeof setTimeout>;
+  const schedulePop = () => {
+    popTimer = setTimeout(
+      () => {
+        smallArmsPop();
+        schedulePop();
+      },
+      90 + Math.random() * 380,
+    );
+  };
+  schedulePop();
+
+  battleNodes = {
+    stop: () => {
+      clearTimeout(popTimer);
+      bed.stop();
+      tremolo.stop();
+    },
+  };
+}
+
+export function stopBattleAmbience() {
+  battleNodes?.stop();
+  battleNodes = null;
+}
+
+/** A single faint rifle crack — part of the ambient bed, very quiet. */
+function smallArmsPop() {
+  if (!ctx || !masterGain) return;
+  const c = ctx;
+  const now = c.currentTime;
+  const src = c.createBufferSource();
+  src.buffer = noiseBuffer(c, 0.08);
+  const hp = c.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 1400;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.018 + Math.random() * 0.02, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+  src.connect(hp).connect(g).connect(masterGain);
+  src.start(now);
+  src.stop(now + 0.08);
+}
+
+/** Dull artillery/shell impact thump — quieter than the real playCannonBoom. */
+export function playImpactThump(intensity = 1) {
+  const c = getCtx();
+  const now = c.currentTime;
+  const peak = (0.05 + Math.random() * 0.04) * intensity;
+  const osc = c.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(95, now);
+  osc.frequency.exponentialRampToValueAtTime(38, now + 0.4);
+  const g = c.createGain();
+  g.gain.setValueAtTime(peak, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+  osc.connect(g).connect(masterGain!);
+  osc.start(now);
+  osc.stop(now + 0.6);
+}
+
+/** A tank/field-gun report — heavier than a rifle crack, lighter than a real cannon boom. */
+export function playCannonReport(intensity = 1) {
+  const c = getCtx();
+  const now = c.currentTime;
+  const peak = (0.07 + Math.random() * 0.03) * intensity;
+  const osc = c.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(150, now);
+  osc.frequency.exponentialRampToValueAtTime(55, now + 0.3);
+  const g = c.createGain();
+  g.gain.setValueAtTime(peak, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+  const crack = c.createBufferSource();
+  crack.buffer = noiseBuffer(c, 0.14);
+  const hp = c.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 700;
+  const cg = c.createGain();
+  cg.gain.setValueAtTime(peak * 0.6, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+  osc.connect(g).connect(masterGain!);
+  crack.connect(hp).connect(cg).connect(masterGain!);
+  osc.start(now);
+  osc.stop(now + 0.5);
+  crack.start(now);
+  crack.stop(now + 0.16);
+}

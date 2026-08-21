@@ -9,6 +9,7 @@ import { pushOutOfRiver, terrainHeight } from './terrain/heightField';
 const MAX_SOLDIERS = 170;
 const MAX_TANKS = 8;
 const MAX_ARTILLERY = 4;
+const SHIFT_RANGE = 4; // how far the whole formation creeps forward/back with the tide of battle
 const dummy = new THREE.Object3D();
 
 interface Slot {
@@ -22,7 +23,8 @@ interface Props {
   side: 'shield' | 'transparent';
   count: number; // strength from real ZEC (see logic/mapping.ts#zecToUnitCount)
   frontLineWorldX: number;
-  push: number; // 0..1 advance pressure from real momentum
+  /** signed war fortune for THIS side: +1 winning/advancing, -1 losing/falling back (from real momentum). */
+  advance: number;
 }
 
 function mulberry32(seed: number) {
@@ -36,7 +38,6 @@ function mulberry32(seed: number) {
   };
 }
 
-/** Build a stable, seeded set of formation slots in a band of X-offsets. */
 function makeSlots(seed: number, n: number, cols: number, oxStart: number, oxStep: number, jitterOx: number, scaleBase: number, scaleVar: number): Slot[] {
   const rng = mulberry32(seed);
   const arr: Slot[] = [];
@@ -51,18 +52,20 @@ function makeSlots(seed: number, n: number, cols: number, oxStart: number, oxSte
 }
 
 /**
- * A full combined-arms force for one side: a mass of infantry with a rank of
- * armour and a few artillery pieces at the rear. All strength (unit counts)
- * is derived from the real ZEC on that side of the ledger; nothing here is
- * synthetic. Units stand on the shared terrain height-field and never in the
- * river. Idle bob/sway keeps the line alive between real events.
+ * A full combined-arms force for one side: infantry with a rank of armour and
+ * a few artillery pieces at the rear. Strength (unit counts) is derived from
+ * real ZEC. The whole formation reacts to the real tide of battle (`advance`):
+ * it creeps toward the line and surges when its side is winning, crouches and
+ * falls back when losing, and every soldier fires with a small recoil. All of
+ * it is per-instance matrix math in one useFrame — one draw call per mesh.
  */
-export default function Army({ side, count, frontLineWorldX, push }: Props) {
+export default function Army({ side, count, frontLineWorldX, advance }: Props) {
   const soldierRef = useRef<THREE.InstancedMesh>(null);
   const tankRef = useRef<THREE.InstancedMesh>(null);
   const artyRef = useRef<THREE.InstancedMesh>(null);
-  const dir = side === 'shield' ? 1 : -1; // +X toward shield fort, -X toward transparent fort
-  const baseFacing = dir > 0 ? 0 : Math.PI; // geometry forward is -X; this aims each unit at the enemy
+  const shiftRef = useRef(0); // smoothed formation advance/retreat
+  const dir = side === 'shield' ? 1 : -1;
+  const baseFacing = dir > 0 ? 0 : Math.PI;
 
   const soldierGeo = useMemo(() => getSoldierGeometry(side), [side]);
   const tankGeo = useMemo(() => getTankGeometry(side), [side]);
@@ -76,40 +79,65 @@ export default function Army({ side, count, frontLineWorldX, push }: Props) {
   const tankCount = Math.min(MAX_TANKS, Math.floor(count / 26));
   const artyCount = Math.min(MAX_ARTILLERY, Math.floor(count / 65));
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     const t = clock.elapsedTime;
+    const pushForward = Math.max(0, advance);
+    const retreat = Math.max(0, -advance);
+    // smooth the formation's forward/back drift toward the real tide of battle
+    shiftRef.current += (advance * SHIFT_RANGE - shiftRef.current) * Math.min(1, delta * 0.6);
+    const shift = shiftRef.current;
 
-    const place = (
-      mesh: THREE.InstancedMesh | null,
-      slots: Slot[],
-      visible: number,
-      max: number,
-      opts: { bob: number; sway: number; march: number; flat?: boolean },
-    ) => {
+    // --- infantry: bob, sway, firing recoil, crouch-when-losing ---
+    const sm = soldierRef.current;
+    if (sm) {
+      for (let i = 0; i < MAX_SOLDIERS; i++) {
+        const slot = soldierSlots[i];
+        const active = i < soldierCount;
+        const z = slot.oz;
+        const march = active ? Math.sin(t * 0.5 + slot.jitter) * (0.12 + pushForward * 0.5) : 0;
+        // firing recoil: a quick backward kick on each shot
+        const fireCycle = (t * 1.5 + slot.jitter * 3.7) % 1;
+        const recoil = active && fireCycle < 0.09 ? (1 - fireCycle / 0.09) * 0.16 : 0;
+        const effOx = slot.ox - shift; // advancing pulls the formation toward the line
+        let x = frontLineWorldX + dir * (effOx - march + recoil);
+        x = pushOutOfRiver(x, z);
+        const ground = terrainHeight(x, z);
+        const bob = active ? Math.abs(Math.sin(t * 2.3 + slot.jitter)) * 0.09 : 0;
+        const crouch = retreat * 0.16;
+        const y = active ? ground + bob - crouch : -40;
+        const pitch = recoil * 0.6 + retreat * 0.18; // recoil kick + hunched-when-retreating lean
+        const facing = baseFacing + Math.sin(t * 0.4 + slot.jitter) * 0.12;
+        dummy.position.set(x, y, z);
+        dummy.rotation.set(pitch, facing, 0);
+        dummy.scale.setScalar(active ? slot.scale : 0.0001);
+        dummy.updateMatrix();
+        sm.setMatrixAt(i, dummy.matrix);
+      }
+      sm.instanceMatrix.needsUpdate = true;
+    }
+
+    // --- vehicles: mostly hold position, occasional firing recoil ---
+    const placeVehicles = (mesh: THREE.InstancedMesh | null, slots: Slot[], visible: number, max: number, fireRate: number, recoilAmt: number) => {
       if (!mesh) return;
       for (let i = 0; i < max; i++) {
         const slot = slots[i];
         const active = i < visible;
         const z = slot.oz;
-        const march = active ? Math.sin(t * 0.5 + slot.jitter) * (opts.march * (0.4 + push)) : 0;
-        let x = frontLineWorldX + dir * (slot.ox - march);
+        const fireCycle = (t * fireRate + slot.jitter) % 1;
+        const recoil = active && fireCycle < 0.05 ? (1 - fireCycle / 0.05) * recoilAmt : 0;
+        let x = frontLineWorldX + dir * (slot.ox - shift * 0.6 + recoil);
         x = pushOutOfRiver(x, z);
-        const ground = terrainHeight(x, z);
-        const bob = active && opts.bob ? Math.abs(Math.sin(t * 2.3 + slot.jitter)) * opts.bob : 0;
-        const y = active ? ground + bob : -40;
-        const facing = baseFacing + (opts.flat ? 0 : Math.sin(t * 0.4 + slot.jitter) * opts.sway);
+        const y = active ? terrainHeight(x, z) : -40;
         dummy.position.set(x, y, z);
-        dummy.rotation.set(0, facing, 0);
+        dummy.rotation.set(0, baseFacing, 0);
         dummy.scale.setScalar(active ? slot.scale : 0.0001);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
       }
       mesh.instanceMatrix.needsUpdate = true;
     };
-
-    place(soldierRef.current, soldierSlots, soldierCount, MAX_SOLDIERS, { bob: 0.09, sway: 0.14, march: 0.4 });
-    place(tankRef.current, tankSlots, tankCount, MAX_TANKS, { bob: 0, sway: 0, march: 0.12, flat: true });
-    place(artyRef.current, artySlots, artyCount, MAX_ARTILLERY, { bob: 0, sway: 0, march: 0, flat: true });
+    placeVehicles(tankRef.current, tankSlots, tankCount, MAX_TANKS, 0.16, 0.5);
+    placeVehicles(artyRef.current, artySlots, artyCount, MAX_ARTILLERY, 0.1, 0.7);
   });
 
   return (

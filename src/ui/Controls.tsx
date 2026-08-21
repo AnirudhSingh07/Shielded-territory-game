@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useUIStore, type EffectIntensity } from '../state/uiStore';
-import { startAmbient, stopAmbient } from '../audio/soundManager';
+import { startAmbient, startBattleAmbience, stopAmbient, stopBattleAmbience } from '../audio/soundManager';
 
 const INTENSITIES: EffectIntensity[] = ['low', 'normal', 'high'];
 
@@ -28,8 +28,13 @@ export default function Controls() {
   const resetCamera = useUIStore((s) => s.resetCamera);
 
   const handleToggleSound = () => {
-    if (!soundOn) startAmbient();
-    else stopAmbient();
+    if (!soundOn) {
+      startAmbient();
+      startBattleAmbience();
+    } else {
+      stopAmbient();
+      stopBattleAmbience();
+    }
     toggleSound();
   };
 

@@ -9,6 +9,7 @@ import { useUIStore } from '../../state/uiStore';
 import { playAlertHit, playCannonBoom, playShieldChime } from '../../audio/soundManager';
 import { triggerShake } from '../cameraShake';
 import { requestFrontLineFocus } from '../cameraFocus';
+import { vibrate } from '../haptics';
 import { terrainHeight } from '../terrain/heightField';
 
 interface Props {
@@ -99,6 +100,7 @@ export default function EventEffectsManager({ events, frontLineWorldX, shieldCol
         newBanners.push({ key: `${e.id}_banner`, position: [toX, terrainHeight(toX, 0) + 9, 0], amountZec: Math.abs(e.netZec), side: e.side, txHash: e.txHash });
         triggerShake(0.35 + e.magnitude * 0.5);
         requestFrontLineFocus(frontLineRef.current, 0.55 + e.magnitude * 0.45);
+        vibrate(35 + Math.round(e.magnitude * 45)); // a real confirmed event buzzes harder than ambient impacts (normal+ intensity)
       }
 
       if (soundOn) {
