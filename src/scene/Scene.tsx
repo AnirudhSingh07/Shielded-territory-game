@@ -15,6 +15,7 @@ import Horizon from './Horizon';
 import CameraRig from './CameraRig';
 import EventEffectsManager from './effects/EventEffectsManager';
 import FrontLineSkirmish from './effects/FrontLineSkirmish';
+import Firefight from './effects/Firefight';
 import type { WarState } from '../types';
 import { frontLineToWorldX, SHIELD_FORT_X, TRANSPARENT_FORT_X, zecToUnitCount } from '../logic/mapping';
 
@@ -81,6 +82,7 @@ export default function Scene({ state }: { state: WarState }) {
       <MempoolScouts scouts={state.scouts} frontLineWorldX={frontLineWorldX} />
       <EventEffectsManager events={state.events} frontLineWorldX={frontLineWorldX} shieldColor={SHIELD_GLOW} transparentColor={TRANSPARENT_GLOW} />
       <FrontLineSkirmish worldX={frontLineWorldX} />
+      <Firefight worldX={frontLineWorldX} />
 
       <AmbientDust />
       <CameraRig frontLineWorldX={frontLineWorldX} />
