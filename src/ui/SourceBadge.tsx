@@ -1,0 +1,22 @@
+import type { SourceStatus } from '../types';
+
+const CONFIG: Record<SourceStatus, { label: string; dot: string; text: string; pulse?: boolean }> = {
+  live: { label: 'LIVE', dot: 'bg-shield', text: 'text-shield', pulse: true },
+  anchored: { label: 'LIVE·ANCHORED', dot: 'bg-shield', text: 'text-shield', pulse: true },
+  stale: { label: 'STALE', dot: 'bg-gold', text: 'text-gold' },
+  loading: { label: 'SYNCING', dot: 'bg-ink-dim', text: 'text-ink-dim' },
+  error: { label: 'OFFLINE', dot: 'bg-crimson-glow', text: 'text-crimson-glow' },
+};
+
+export default function SourceBadge({ status, title }: { status: SourceStatus; title?: string }) {
+  const c = CONFIG[status];
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center gap-1 rounded-full border border-line px-1.5 py-0.5 text-[9px] font-mono tracking-widest ${c.text}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${c.dot} ${c.pulse ? 'animate-pulse-soft' : ''}`} />
+      {c.label}
+    </span>
+  );
+}
