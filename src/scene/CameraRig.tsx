@@ -13,9 +13,11 @@ const PAN_SPEED = 18;
  * Orbit + free-look camera: mouse/touch drag to orbit, scroll to zoom, WASD
  * to pan, slow automatic orbit when idle (paused on user interaction,
  * resumed a couple seconds after they let go), and a reset-to-default
- * driven by uiStore.cameraResetToken.
+ * driven by uiStore.cameraResetToken. The siege map is centered on the
+ * fort at the origin, so idle auto-orbit just circles that fixed point —
+ * no need to chase a moving front line anymore.
  */
-export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number }) {
+export default function CameraRig() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
   const autoOrbit = useUIStore((s) => s.autoOrbit);
@@ -78,9 +80,7 @@ export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number
     }
 
     if (autoOrbit && !anyKey) {
-      // Gently drift the view toward the current front line so the action stays framed,
-      // then keep a slow ambient orbit going for the "leave it open" hypnotic feel.
-      controls.target.x += (frontLineWorldX * 0.3 - controls.target.x) * delta * 0.15;
+      // Slow ambient orbit around the fort for the "leave it open" hypnotic feel.
       const angle = delta * 0.06;
       const p = camera.position;
       const c = Math.cos(angle);

@@ -17,10 +17,12 @@ export default function Disclaimer() {
       <div className="panel animate-flicker-in max-w-md rounded-lg p-5 text-center sm:p-6">
         <h2 className="font-display text-sm font-semibold tracking-[0.2em] text-shield uppercase">Welcome to the front</h2>
         <p className="mt-3 text-sm leading-relaxed text-ink-dim">
-          <strong className="text-ink">Shielded Territory War</strong> is a theatrical, real-time visualization of Zcash's public
-          transparent vs. shielded pool dynamics, dramatized as a battlefield. Total supply is live on-chain data; the shielded/
-          transparent split and flow events are a modeled simulation because no free live feed publishes that split at high
-          resolution today — every panel is labeled LIVE or SIMULATED so you always know which is which.
+          <strong className="text-ink">Shielded Territory War</strong> is a live theatrical visualization of Zcash's public
+          transparent vs. shielded pool dynamics. Every courier zebra you see is a <strong className="text-ink">real, individual
+          on-chain transaction</strong>, pulled straight from the chain and running to or from the Shielded Fort the moment it's
+          observed — click any line in the activity feed to verify it on a block explorer. Total supply, price, and every flow
+          number are live too; the one exception is the *starting point* of the shielded-territory %, which has no live public
+          API and is anchored to a documented estimate, then moved only by those real transactions from then on.
         </p>
         <p className="mt-3 font-mono text-[11px] text-ink-faint">This is not financial advice, and no wallet or trading is involved.</p>
         <button

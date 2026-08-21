@@ -3,15 +3,15 @@ import { extend } from '@react-three/fiber';
 import * as THREE from 'three';
 
 /**
- * Stylized abstract battlefield terrain. Colors the ground green/red based
- * on which side of the live front line (uFrontLine, a world-space X coord
- * derived from shieldedFraction — see logic/mapping.ts) each fragment falls
- * on, with a pulsing glow band along the line itself and a faint tactical
- * grid overlay for the "war map" feel.
+ * Stylized abstract siege-map terrain, centered on the Shielded Fort.
+ * Colors the ground green inside the live front-line radius (uFrontRadius,
+ * derived from the real shielded fraction — see logic/mapping.ts) and red
+ * beyond it, with a pulsing glow ring along the boundary itself and a
+ * concentric radar-style grid for the "tactical map" feel.
  */
 export const TerrainMaterial = shaderMaterial(
   {
-    uFrontLine: 0,
+    uFrontRadius: 10,
     uTime: 0,
     uShieldColor: new THREE.Color('#00e5a0'),
     uTransparentColor: new THREE.Color('#ff3b5c'),
@@ -27,7 +27,7 @@ export const TerrainMaterial = shaderMaterial(
     }
   `,
   /* glsl */ `
-    uniform float uFrontLine;
+    uniform float uFrontRadius;
     uniform float uTime;
     uniform vec3 uShieldColor;
     uniform vec3 uTransparentColor;
@@ -47,25 +47,29 @@ export const TerrainMaterial = shaderMaterial(
     }
 
     void main() {
-      float side = vWorldPos.x - uFrontLine;
-      float edge = smoothstep(-3.0, 3.0, side);
+      float dist = length(vWorldPos.xz);
+      float side = dist - uFrontRadius; // negative = inside (shield), positive = outside (transparent)
+      float edge = 1.0 - smoothstep(-3.0, 3.0, side);
       vec3 base = mix(uTransparentColor, uShieldColor, edge);
-      vec3 dark = base * 0.11;
+      vec3 dark = base * 0.1;
 
-      vec2 grid = abs(fract(vWorldPos.xz * 0.5 + 0.5) - 0.5);
-      float gridLine = 1.0 - smoothstep(0.0, 0.02, min(grid.x, grid.y));
-      vec3 col = dark + gridLine * base * 0.05;
+      // concentric radar rings + radial spokes, centered on the fort
+      float rings = 1.0 - smoothstep(0.0, 0.04, abs(mod(dist + 1.5, 3.0) - 1.5) - 1.44);
+      float angle = atan(vWorldPos.z, vWorldPos.x);
+      float spokes = 1.0 - smoothstep(0.0, 0.01, abs(mod(angle + 3.14159, 3.14159 / 8.0) - 3.14159 / 16.0) - 3.14159 / 16.0 + 0.006);
+      float gridLine = clamp(rings * 0.6 + spokes * (dist > 3.0 ? 0.35 : 0.0), 0.0, 1.0);
+      vec3 col = dark + gridLine * base * 0.06;
 
       float n = vnoise(vWorldPos.xz * 0.12 + uTime * 0.008);
-      col += base * n * 0.05;
+      col += base * n * 0.045;
 
       float distToFront = abs(side);
       float pulse = 0.55 + 0.45 * sin(uTime * 2.2 - distToFront * 0.6);
       float glow = exp(-distToFront * 0.28) * pulse;
       col += mix(uTransparentColor, uShieldColor, edge) * glow * 0.55;
 
-      float vign = smoothstep(1.0, 0.25, length(vUv - 0.5));
-      col *= mix(0.55, 1.0, vign);
+      float vign = smoothstep(1.0, 0.2, dist / 44.0);
+      col *= mix(0.5, 1.0, vign);
 
       gl_FragColor = vec4(col, 1.0);
     }

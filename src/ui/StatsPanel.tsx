@@ -8,7 +8,7 @@ export default function StatsPanel({ state }: { state: WarState }) {
     <div className="panel hud-clip pointer-events-auto w-64 p-3 sm:w-72 sm:p-4">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="font-display text-[11px] font-semibold tracking-[0.2em] text-ink-dim uppercase">Territory Control</h2>
-        <SourceBadge status={state.sources.supply} title="Total supply source" />
+        <SourceBadge status={state.sources.flows} title="Baseline anchor + real observed shielding/unshielding transactions" />
       </div>
 
       <div className="mb-3 flex h-2.5 overflow-hidden rounded-full border border-line bg-panel-2">
@@ -36,7 +36,10 @@ export default function StatsPanel({ state }: { state: WarState }) {
       </div>
 
       <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-[10px] text-ink-faint">
-        <span>Total supply</span>
+        <span className="flex items-center gap-1.5">
+          Total supply
+          <SourceBadge status={state.sources.supply} title="CoinMetrics Community API" />
+        </span>
         <span className="font-mono text-ink-dim">{formatZec(supply.totalSupply, { compact: true })} ZEC</span>
       </div>
     </div>

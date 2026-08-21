@@ -35,7 +35,9 @@ async function fetchJson(url: string): Promise<unknown> {
 
 /** Fetches the last `days` of total ZEC circulating supply. Throws on any failure. */
 export async function fetchZecSupplyHistory(days = 10): Promise<CoinMetricsSupplyPoint[]> {
-  const url = `${ENDPOINT}?assets=zec&metrics=SplyCur&frequency=1d&page_size=${days}&sort=time&order=descending`;
+  // No sort/order params: CoinMetrics rejects an `order` param outright (verified), and the
+  // default response is already time-ascending, which is what the client-side sort below expects.
+  const url = `${ENDPOINT}?assets=zec&metrics=SplyCur&frequency=1d&page_size=${days}`;
   const json = (await fetchJson(url)) as {
     data?: Array<{ time: string; SplyCur?: string }>;
     error?: { message: string };

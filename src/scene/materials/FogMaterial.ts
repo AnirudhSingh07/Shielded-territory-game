@@ -3,15 +3,15 @@ import { extend } from '@react-three/fiber';
 import * as THREE from 'three';
 
 /**
- * Fog of war: a drifting noise cloud that blankets the transparent side of
- * the map and recedes as the shielded front line advances (uFrontLine) and
- * as the overall shielded fraction grows (uOpacity, from
+ * Fog of war: a drifting noise cloud that blankets the transparent territory
+ * outside the live front-line radius (uFrontRadius) and recedes outward
+ * from the fort as the overall shielded fraction grows (uOpacity, from
  * logic/mapping.ts#shieldedFractionToFogOpacity). Represents "unmapped /
  * unprotected" territory, not literal visibility.
  */
 export const FogMaterial = shaderMaterial(
   {
-    uFrontLine: 0,
+    uFrontRadius: 10,
     uTime: 0,
     uOpacity: 0.6,
     uColor: new THREE.Color('#040a0d'),
@@ -27,7 +27,7 @@ export const FogMaterial = shaderMaterial(
     }
   `,
   /* glsl */ `
-    uniform float uFrontLine;
+    uniform float uFrontRadius;
     uniform float uTime;
     uniform float uOpacity;
     uniform vec3 uColor;
@@ -57,8 +57,9 @@ export const FogMaterial = shaderMaterial(
     }
 
     void main() {
-      float side = vWorldPos.x - uFrontLine;
-      float coverage = smoothstep(5.0, -8.0, side);
+      float dist = length(vWorldPos.xz);
+      float side = dist - uFrontRadius;
+      float coverage = smoothstep(-5.0, 8.0, side);
       vec2 drift = vec2(uTime * 0.025, -uTime * 0.014);
       float n = fbm(vWorldPos.xz * 0.07 + drift);
       float n2 = fbm(vWorldPos.xz * 0.18 - drift * 1.7);

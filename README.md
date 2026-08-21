@@ -1,8 +1,11 @@
 # Shielded Territory War
 
 A live, theatrical, single-page visualization of Zcash's transparent vs.
-shielded pool dynamics, presented as a real-time territory war on a stylized
-battle-map. Built with **Vite + React + TypeScript + Three.js
+shielded pool dynamics: a Shielded Fort at the center of a siege map,
+defended by a garrison of green privacy zebras, besieged by a red
+transparent-pool horde — and every courier zebra that runs between them is a
+**real, individual on-chain Zcash transaction**, animated the moment it's
+observed. Built with **Vite + React + TypeScript + Three.js
 (`@react-three/fiber`) + Tailwind CSS v4 + Zustand**.
 
 > **This is a theatrical visualization of public on-chain data. Not financial
@@ -13,83 +16,98 @@ battle-map. Built with **Vite + React + TypeScript + Three.js
 ## 1. Architecture & data flow
 
 ```
-┌────────────────────┐   ┌──────────────────────┐
-│ CoinMetrics         │   │ Blockchair            │
-│ Community API       │   │ Zcash Stats API       │
-│ (REAL, live)         │   │ (REAL, live)           │
-│ → total ZEC supply   │   │ → price / mkt cap /    │
-└─────────┬───────────┘   │   block height / hash  │
-          │                └──────────┬─────────────┘
-          │                            │
-          ▼                            ▼
-   ┌─────────────────────────────────────────────┐
-   │        src/data/useZecFeed.ts (orchestrator) │
-   │  polls every 30s, merges providers, drives    │
-   │  the shielded-dynamics simulation, reduces     │
-   │  everything into one `WarState` object          │
-   └───────────────────┬───────────────────────────┘
-                        │
-          ┌─────────────┴─────────────┐
-          ▼                            ▼
- ┌──────────────────┐        ┌─────────────────────┐
- │ src/scene/*       │        │ src/ui/*              │
- │ Three.js battle-   │        │ HUD panels: stats,     │
- │ field: terrain,    │        │ flows, momentum banner,│
- │ armies, fog of war,│        │ activity feed, controls│
- │ front line, VFX    │        │                        │
- └──────────────────┘        └─────────────────────┘
+┌──────────────┐  ┌──────────────┐  ┌───────────────────────┐
+│ CoinMetrics    │  │ Blockchair     │  │ Blockchair              │
+│ Community API   │  │ Zcash Stats    │  │ Zcash Transactions       │
+│ (REAL, live)      │  │ (REAL, live)     │  │ (REAL, live, per-tx)       │
+│ → total ZEC supply │  │ → price/mkt cap/ │  │ → shielded_value_delta on   │
+└─────────┬─────────┘  │   block/hashrate │  │   every recent transaction   │
+          │             └────────┬─────────┘  └───────────┬───────────────┘
+          │                      │                          │
+          ▼                      ▼                          ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │                 src/data/useZecFeed.ts (orchestrator)          │
+   │  backfills ~90min of real transaction history, then polls      │
+   │  every 20s; RealFlowEngine sums real deltas into a running      │
+   │  shielded %, windowed net flows, momentum, and event feed        │
+   └───────────────────────────┬─────────────────────────────────────┘
+                                │
+                  ┌─────────────┴─────────────┐
+                  ▼                            ▼
+         ┌──────────────────┐        ┌─────────────────────┐
+         │ src/scene/*        │        │ src/ui/*              │
+         │ Fort at the center, │        │ HUD panels: stats,     │
+         │ zebra armies, fog,  │        │ flows, momentum banner,│
+         │ front ring, courier │        │ activity feed (links to │
+         │ VFX per real tx     │        │ the real tx), controls   │
+         └──────────────────┘        └─────────────────────┘
 ```
 
 `src/data/useZecFeed.ts` is the single place that knows about every data
 source. Everything downstream (the 3D scene, the 2D fallback, every HUD
-panel) only ever reads the reduced `WarState` type from `src/types.ts` — it
-has no idea which numbers came from a live API vs. the simulation.
+panel) only ever reads the reduced `WarState` type from `src/types.ts`.
 
-### Data provenance — what's real vs. modeled
+### Data provenance — what's live vs. anchored
 
-Every panel in the UI carries a small **LIVE / STALE / SIMULATED** badge so
-you always know what you're looking at. Nothing pretends to be live when
-it isn't.
+Every panel carries a small **LIVE / LIVE·ANCHORED / STALE / OFFLINE** badge
+so you always know what you're looking at. Nothing pretends to be live when
+it isn't, and nothing here is a random-walk simulation.
 
 | Value | Source | Status |
 |---|---|---|
 | Total ZEC circulating supply | [CoinMetrics Community API](https://docs.coinmetrics.io/api/v4) (`SplyCur`, free, no key, CORS-enabled) | **LIVE** |
 | Price, market cap, 24h change, block height, hash rate | [Blockchair Zcash Stats](https://blockchair.com/api/docs#link_M) (free, no key, CORS-enabled) | **LIVE** |
-| Shielded vs. transparent split, pool breakdown, 1h/24h/7d net flows, battle events | `src/data/providers/simulation.ts` — a seeded, mean-reverting stochastic model | **SIMULATED** |
+| Every shielding/unshielding transaction (the couriers, the activity feed, the 1h/24h/7d net flow) | [Blockchair Zcash Transactions](https://blockchair.com/api/docs#link_301) — the real `shielded_value_delta` field on every recent transaction (free, no key, CORS-enabled) | **LIVE** |
+| Shielded-territory % | Real transaction deltas above, added to a one-time documented baseline anchor (see below) | **LIVE·ANCHORED** |
 
-**Why the split is simulated:** as of writing there is no free,
-browser-fetchable (CORS-enabled, no-signup) API that publishes the live
-Sprout/Sapling/Orchard value-pool breakdown at sub-daily resolution — that
-data only exists via full-node RPCs (`z_gettotalbalance`,
-`getblockchaininfo().valuePools`) or paid indexer products, neither of which
-a static browser app can call directly. Rather than fabricate a fake "live"
-endpoint, `simulation.ts` is explicit about it (see the long comment at the
-top of that file) and seeds from a documented, publicly-reported ballpark
-(~30% of supply shielded). If you wire up a real feed (e.g. your own
-zebrad/zcashd + indexer), swap that one module out — nothing else needs to
-change, since it's consumed through the same `WarState` shape.
+**How the real transaction feed works:** Blockchair's Zcash transactions
+endpoint includes `shielded_value_delta` on every transaction — the signed
+change to the shielded value pools it caused (positive = shielding,
+negative = unshielding, zero = an ordinary transparent tx). On load, the app
+backfills real transaction history (`src/data/providers/zcashTransactions.ts`,
+paginated, bounded to ~90 real minutes so startup doesn't hang), then polls
+for new transactions every 20s and ingests any not already seen (deduped by
+hash). `src/data/providers/realFlowEngine.ts` sums these real deltas into
+windowed net flows, a momentum figure, and the event feed — no
+`Math.random()` anywhere in that file.
+
+**Why the shielded % has one anchored constant:** there is no free,
+browser-fetchable API that publishes the live *absolute* total shielded ZEC
+supply — only individual transaction deltas (which we do have, live). So the
+running shielded fraction is `ANCHOR_FRACTION + Σ(real deltas since the
+anchor time) / totalSupply`. The anchor (~30% shielded, a documented public
+ballpark) is fixed once, at the oldest point the initial backfill reached —
+every unit of movement away from that single starting constant is 100% real,
+observed, on-chain activity, which is why it's badged `LIVE·ANCHORED` rather
+than `SIMULATED`. Net-flow windows (1h/24h/7d) that aren't yet fully covered
+by collected history are honestly labeled "partial" with the real coverage
+so far (e.g. "17 real tx · 1.4h so far") instead of being padded out.
 
 ### Data mapping logic (on-chain numbers → visuals)
 
 All of this lives in `src/logic/mapping.ts`, fully commented:
 
-- **Front line position** — `shieldedFraction * 2 - 1` maps the 0–100%
-  shielded share onto a −1..+1 axis, which `frontLineToWorldX` turns into an
-  X coordinate on the 3D battlefield. Positive X = shielded (green)
-  territory, negative X = transparent (red).
+- **Front-line radius** — the live shielded fraction (0..1) maps linearly
+  onto a radius around the Shielded Fort at the origin
+  (`frontLineToRadius`). Inside that radius is green (shielded) territory;
+  outside is red (transparent) territory. More shielded → the green
+  territory pushes further out, further from the fort.
 - **Army size** — each side's absolute ZEC amount is compressed with a
   square-root scale and clamped to a render-friendly instance count
   (`zecToUnitCount`), so the visual delta between e.g. 30% and 35% shielded
-  is legible without rendering millions of instances or letting a supply
+  is legible without rendering millions of zebras or letting a supply
   outlier blow up the scene.
-- **Fog of war** — recedes as `shieldedFraction` grows
+- **Fog of war** — recedes outward from the fort as `shieldedFraction` grows
   (`shieldedFractionToFogOpacity`); it represents "unshielded/unmapped"
   territory, not literal visibility.
-- **Momentum & battle events** — the simulation engine's smoothed rate of
-  change classifies into `privacy-surge / privacy-advancing / stalemate /
-  transparent-counter / transparent-surge`, and any single large simulated
-  flow (`magnitude > threshold`) spawns a cinematic event (airstrike beam +
-  explosion + toast banner + activity-feed entry + optional sound).
+- **Courier zebras** — every real BattleEvent spawns one `TransactionCourier`
+  running between a random point in the outer field and the fort gate
+  (inward for shielding, outward for unshielding). Its scale is a log-scaled
+  function of the real transaction's ZEC size (`magnitudeToEffectScale`), so
+  a dust-sized shield and a 50+ ZEC shield both register, proportionally.
+- **Momentum** — `RealFlowEngine#getMomentum` sums real deltas over the last
+  30 real minutes and classifies into `privacy-surge / privacy-advancing /
+  stalemate / transparent-counter / transparent-surge`.
 
 ---
 
@@ -102,16 +120,18 @@ src/
     providers/
       coinMetrics.ts            REAL: total supply
       blockchair.ts              REAL: market/network stats
-      simulation.ts                SIMULATED: shielded dynamics engine
-    useZecFeed.ts                 Orchestrator hook (polling, fallback, reduction)
+      zcashTransactions.ts        REAL: per-transaction shielded pool deltas
+      realFlowEngine.ts             Sums real deltas into fraction/flows/momentum/events
+    useZecFeed.ts                   Orchestrator hook (backfill, polling, reduction)
   logic/
     mapping.ts                    Pure data → visual mapping functions
   state/
     uiStore.ts                    Zustand: sound/camera/intensity/disclaimer prefs
   scene/                          Three.js / @react-three/fiber
-    Scene.tsx, Battlefield.tsx, FogOfWar.tsx, FrontLine.tsx, Army.tsx, CameraRig.tsx
-    materials/                    Custom GLSL shaders (terrain, fog)
-    effects/                      Explosions, airstrike beams, event manager
+    Scene.tsx, Fort.tsx, Battlefield.tsx, FogOfWar.tsx, FrontRing.tsx, Army.tsx, CameraRig.tsx
+    geometry/zebraGeometry.ts     Merged low-poly "cute zebra" BufferGeometry (instanced)
+    materials/                    Custom GLSL shaders (terrain, fog, front ring)
+    effects/                      TransactionCourier, Explosion, event manager
     fallback/Canvas2DBattlefield.tsx   2D canvas fallback if WebGL is unavailable
   ui/                             HUD panels (stats, flows, momentum, feed, controls...)
   audio/soundManager.ts           Fully synthesized Web Audio SFX (no audio files)
@@ -168,16 +188,19 @@ Upload the contents of `dist/` after running `npm run build`.
 
 - **WebGL fallback:** `src/hooks/useWebGLSupport.ts` feature-detects WebGL;
   if unavailable, `src/scene/fallback/Canvas2DBattlefield.tsx` renders the
-  same front-line/army data with plain 2D canvas instead of a blank screen.
+  same radial siege-map data with plain 2D canvas instead of a blank screen.
 - **Provider fallback:** if CoinMetrics is unreachable, total supply falls
   back to the last known good value, then to a documented hardcoded
-  baseline — the app never hard-fails to a loading spinner.
+  baseline; if the transaction backfill is slow or a page fails, the engine
+  just starts with whatever real history it collected and keeps growing it
+  live — the app never hard-fails to a loading spinner.
 - **Code-split:** the Three.js scene is lazy-loaded (`React.lazy`) so the
   HUD shell paints immediately while the (unavoidably large) Three.js chunk
   streams in behind it.
 - **No external runtime assets:** all sound is synthesized live via the Web
-  Audio API and the sky/lighting is procedural — nothing depends on a CDN
-  being reachable at runtime beyond the two data APIs above (which degrade
+  Audio API, the fort/zebras are procedural geometry (no downloaded 3D
+  models), and lighting is procedural — nothing depends on a CDN being
+  reachable at runtime beyond the three data APIs above (which degrade
   gracefully if blocked, e.g. by an ad-blocker or offline use).
 
 ---
@@ -185,7 +208,9 @@ Upload the contents of `dist/` after running `npm run build`.
 ## 6. Controls
 
 - **Drag** to orbit, **scroll** to zoom, **W A S D** to pan.
-- Camera slowly auto-orbits toward the front line when idle; any drag
-  pauses it for a few seconds.
+- Camera slowly auto-orbits around the fort when idle; any drag pauses it
+  for a few seconds.
 - Top-right panel: sound toggle, camera reset, and effect-intensity
   (low/normal/high).
+- Click any line in the Live Activity feed to open that real transaction on
+  a block explorer.
