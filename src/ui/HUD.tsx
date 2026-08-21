@@ -44,7 +44,7 @@ export default function HUD({ state }: { state: WarState }) {
           <FlowPanel state={state} />
         </div>
         <div className="pointer-events-auto ml-auto">
-          <ActivityFeed events={state.events} />
+          <ActivityFeed events={state.events} lastSyncedAt={state.supply.timestamp} />
         </div>
       </div>
 
