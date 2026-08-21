@@ -23,8 +23,9 @@
  * same trajectory, because it's arithmetic over real data, not randomness.
  */
 
-import type { BattleEvent, FlowWindow, MomentumState } from '../../types';
+import type { BattleEvent, FlowWindow, MempoolScout, MomentumState } from '../../types';
 import type { RealFlowTx } from './zcashTransactions';
+import type { PendingFlowTx } from './zcashMempool';
 
 const ZATOSHI_PER_ZEC = 1e8;
 const ANCHOR_FRACTION = 0.3;
@@ -47,6 +48,9 @@ export class RealFlowEngine {
   private seenHashes = new Set<string>();
   private anchorTimeMs: number | null = null;
   private events: BattleEvent[] = [];
+  private scouts = new Map<string, MempoolScout>();
+  /** When this session started — deltas confirmed after this are "session growth" for the monument. */
+  private readonly loadMs = Date.now();
 
   /** Merge in newly observed real transactions (from backfill or a live poll). Returns the genuinely-new ones. */
   ingest(txs: RealFlowTx[]): RealFlowTx[] {
@@ -148,6 +152,52 @@ export class RealFlowEngine {
 
   getRecentEvents(): BattleEvent[] {
     return this.events;
+  }
+
+  /**
+   * Net shielded ZEC observed LIVE since this session loaded — sums only real
+   * confirmed deltas whose block time is after load, so it starts at 0 and
+   * moves only with genuinely-new confirmed shielding/unshielding. Drives the
+   * Shielded Growth Monument's visible growth.
+   */
+  getSessionNetShieldedZec(): number {
+    let netZatoshi = 0;
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const tx = this.history[i];
+      if (tx.timeMs < this.loadMs) break; // history is time-ascending
+      netZatoshi += tx.deltaZatoshi;
+    }
+    return netZatoshi / ZATOSHI_PER_ZEC;
+  }
+
+  /**
+   * Reconcile the current mempool snapshot into the live scout set. Pending
+   * txs that are already confirmed are dropped (their confirmed courier takes
+   * over); ones no longer in the mempool are dropped (the component fades
+   * them). firstSeenMs is preserved across polls so a scout keeps advancing.
+   */
+  updateScouts(pending: PendingFlowTx[], nowMs: number) {
+    const live = new Set<string>();
+    for (const tx of pending) {
+      if (this.seenHashes.has(tx.hash)) continue; // already confirmed — not a scout anymore
+      live.add(tx.hash);
+      const existing = this.scouts.get(tx.hash);
+      const zec = tx.deltaZatoshi / ZATOSHI_PER_ZEC;
+      this.scouts.set(tx.hash, {
+        txHash: tx.hash,
+        side: zec > 0 ? 'shield' : 'transparent',
+        netZec: zec,
+        magnitude: clamp(Math.log10(1 + Math.abs(zec)) / Math.log10(1 + EVENT_LARGE_REF_ZEC), 0.06, 1),
+        firstSeenMs: existing ? existing.firstSeenMs : nowMs,
+      });
+    }
+    for (const hash of [...this.scouts.keys()]) {
+      if (!live.has(hash)) this.scouts.delete(hash);
+    }
+  }
+
+  getScouts(): MempoolScout[] {
+    return [...this.scouts.values()];
   }
 }
 

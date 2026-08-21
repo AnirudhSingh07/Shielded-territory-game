@@ -14,6 +14,23 @@
 /** Where a piece of data actually came from, surfaced in the UI as a badge. */
 export type SourceStatus = 'live' | 'anchored' | 'stale' | 'loading' | 'error';
 
+/**
+ * A REAL pending (unconfirmed) shielding/unshielding transaction currently
+ * sitting in the mempool. Same provenance rules as confirmed transactions —
+ * this is real on-chain data — but it is explicitly *not yet final*, so it's
+ * rendered as a ghostly "scout" that only becomes a full confirmed courier
+ * once it actually confirms.
+ */
+export interface MempoolScout {
+  txHash: string;
+  side: 'shield' | 'transparent';
+  netZec: number;
+  /** 0..1 size weight, log-scaled like confirmed events. */
+  magnitude: number;
+  /** ms epoch we first observed this pending tx (drives how far it has advanced). */
+  firstSeenMs: number;
+}
+
 export interface SourcedValue<T> {
   value: T;
   status: SourceStatus;
@@ -86,9 +103,18 @@ export interface WarState {
   momentumState: MomentumState;
   /** Real transactions, newest first — the live activity feed and the source of every courier VFX. */
   events: BattleEvent[];
+  /** Real pending shielded-pool transactions currently in the mempool (the Mempool Scouts). */
+  scouts: MempoolScout[];
+  /**
+   * Net shielded ZEC observed LIVE since this session loaded (starts at 0,
+   * moves only with real confirmed deltas). Drives the visible growth of the
+   * Shielded Growth Monument; the honest absolute total stays in supply.shieldedZec.
+   */
+  sessionNetShieldedZec: number;
   sources: {
     supply: SourceStatus;
     market: SourceStatus;
     flows: SourceStatus;
+    mempool: SourceStatus;
   };
 }

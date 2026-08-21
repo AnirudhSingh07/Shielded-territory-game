@@ -1,31 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import * as THREE from 'three';
 import Explosion from './Explosion';
 import { FIELD_DEPTH } from '../../logic/mapping';
+import { terrainHeight } from '../terrain/heightField';
 
 interface Props {
   worldX: number;
-  shieldGlow: THREE.ColorRepresentation;
-  transparentGlow: THREE.ColorRepresentation;
 }
 
 interface Spark {
   key: number;
   position: [number, number, number];
-  color: THREE.ColorRepresentation;
 }
 
 let counter = 0;
+const MUZZLE = '#ffce85'; // warm gunfire flash, not a team-coloured burst
 
 /**
- * Small, quick, self-triggered spark clashes along the front line — purely
+ * Small muzzle-flash skirmishes flickering along the contact line — purely
  * decorative atmosphere, never tied to real transaction data, never logged
- * to the activity feed, never accompanied by sound or a banner. This exists
- * only so the line between the two armies never reads as static between
- * real events; it deliberately looks much smaller/quieter than a real
- * TransactionCourier's arrival so the two are never visually confused.
+ * to the activity feed, never accompanied by sound or a banner. Warm gunfire
+ * colour (not team-coloured) and tiny, so it's never confused with a real
+ * TransactionCourier arrival or a confirmed event's cannon flash. This just
+ * keeps the line between the two armies alive with trading fire between events.
  */
-export default function FrontLineSkirmish({ worldX, shieldGlow, transparentGlow }: Props) {
+export default function FrontLineSkirmish({ worldX }: Props) {
   const [sparks, setSparks] = useState<Spark[]>([]);
   const worldXRef = useRef(worldX);
   useEffect(() => {
@@ -41,17 +39,18 @@ export default function FrontLineSkirmish({ worldX, shieldGlow, transparentGlow 
       counter += 1;
       const key = counter;
       const z = (Math.random() - 0.5) * (FIELD_DEPTH - 4);
-      const color = Math.random() > 0.5 ? shieldGlow : transparentGlow;
-      setSparks((prev) => [...prev.slice(-4), { key, position: [worldXRef.current + (Math.random() - 0.5) * 1.5, 0.6, z], color }]);
-      timer = setTimeout(spawn, 1800 + Math.random() * 3200);
+      const x = worldXRef.current + (Math.random() - 0.5) * 4; // fire from either side of the line
+      const y = terrainHeight(x, z) + 1.0; // rifle height on the ground
+      setSparks((prev) => [...prev.slice(-6), { key, position: [x, y, z] }]);
+      timer = setTimeout(spawn, 700 + Math.random() * 1600);
     };
-    timer = setTimeout(spawn, 1200 + Math.random() * 2000);
+    timer = setTimeout(spawn, 800 + Math.random() * 1500);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [shieldGlow, transparentGlow]);
+  }, []);
 
   return (
     <>
@@ -59,9 +58,9 @@ export default function FrontLineSkirmish({ worldX, shieldGlow, transparentGlow 
         <Explosion
           key={s.key}
           position={s.position}
-          color={s.color}
-          particleCount={10}
-          scale={0.3}
+          color={MUZZLE}
+          particleCount={7}
+          scale={0.22}
           onDone={() => setSparks((prev) => prev.filter((x) => x.key !== s.key))}
         />
       ))}

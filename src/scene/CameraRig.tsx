@@ -5,44 +5,51 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import { useUIStore } from '../state/uiStore';
 import { getShakeOffset } from './cameraShake';
+import { getFocus } from './cameraFocus';
 import { SHIELD_FORT_X, TRANSPARENT_FORT_X } from '../logic/mapping';
+import { terrainHeight } from './terrain/heightField';
 
-const DEFAULT_POSITION = new THREE.Vector3(0, 26, 42);
+const DEFAULT_POSITION = new THREE.Vector3(0, 24, 44);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
 const PAN_SPEED = 18;
 const TRANSITION_S = 4;
 
 interface Shot {
   name: string;
-  target: (frontLineX: number) => THREE.Vector3;
+  targetX: (frontLineX: number) => number;
+  targetLift: number; // metres above the ground at the target point
   radius: number;
   height: number;
-  drift: number; // radians/second the shot slowly pans while held, for continuous motion within a shot
+  drift: number; // radians/second the shot slowly pans while held
   holdS: number;
 }
 
 /**
- * A rotating set of preset framings (inspired by "cinematic mode" on
- * reference battlefield dashboards) so a viewer leaving this open for hours
- * sees a produced highlight reel — wide shot, a sweep along the live front
- * line, a close pass on each fort, a high overview — rather than one static
- * orbit forever. Every shot keeps drifting while held, so there's always
- * some motion even mid-shot.
+ * A rotating set of preset framings tuned for war feel: it favours low,
+ * close angles on the front line and the two forts over high overviews, so a
+ * viewer leaving it open sees the fighting, not a map. Targets follow the
+ * terrain height so low shots never sit under a hill. On a major CONFIRMED
+ * transaction, cameraFocus punches the view in on the front line (see below).
  */
 const SHOTS: Shot[] = [
-  { name: 'wide', target: () => new THREE.Vector3(0, 1, 0), radius: 44, height: 25, drift: 0.045, holdS: 34 },
-  { name: 'front-line-sweep', target: (x) => new THREE.Vector3(x, 0.5, 0), radius: 20, height: 6.5, drift: 0.11, holdS: 22 },
-  { name: 'shield-fort-close', target: () => new THREE.Vector3(SHIELD_FORT_X - 4, 3, 0), radius: 15, height: 8.5, drift: 0.05, holdS: 26 },
-  { name: 'high-overview', target: () => new THREE.Vector3(0, 0, 0), radius: 58, height: 46, drift: 0.03, holdS: 24 },
-  { name: 'transparent-fort-close', target: () => new THREE.Vector3(TRANSPARENT_FORT_X + 4, 3, 0), radius: 15, height: 8.5, drift: 0.05, holdS: 26 },
+  { name: 'combat-low', targetX: (x) => x, targetLift: 2, radius: 16, height: 5, drift: 0.08, holdS: 26 },
+  { name: 'front-line-sweep', targetX: (x) => x, targetLift: 1.5, radius: 25, height: 9, drift: 0.13, holdS: 22 },
+  { name: 'shield-fort', targetX: () => SHIELD_FORT_X - 5, targetLift: 4, radius: 17, height: 9, drift: 0.05, holdS: 20 },
+  { name: 'transparent-fort', targetX: () => TRANSPARENT_FORT_X + 5, targetLift: 4, radius: 17, height: 9, drift: 0.05, holdS: 20 },
+  { name: 'flank', targetX: (x) => x, targetLift: 2, radius: 20, height: 7, drift: 0.1, holdS: 20 },
+  { name: 'wide', targetX: () => 0, targetLift: 2, radius: 44, height: 24, drift: 0.04, holdS: 24 },
 ];
+
+const scratchTarget = new THREE.Vector3();
+const scratchPos = new THREE.Vector3();
+const focusTarget = new THREE.Vector3();
+const focusPos = new THREE.Vector3();
 
 /**
  * Orbit + free-look camera: mouse/touch drag to orbit, scroll to zoom, WASD
- * to pan, a cycling cinematic shot list when idle (paused on user
- * interaction, resumed a few seconds after they let go), a reset-to-default
- * driven by uiStore.cameraResetToken, and a screen-shake kick
- * (cameraShake.ts) applied on top for major real-transaction events.
+ * to pan, a cycling war-focused shot list when idle (paused on interaction,
+ * resumed a few seconds after), reset via uiStore.cameraResetToken, a
+ * screen-shake kick (cameraShake.ts) and an event punch-in (cameraFocus.ts).
  */
 export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number }) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
@@ -57,10 +64,6 @@ export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number
     frontLineRef.current = frontLineWorldX;
   }, [frontLineWorldX]);
 
-  // Shuffle the shot order once per session so every visit doesn't open on the same framing.
-  // The one-time-random values below live in a useState initializer (run exactly once, on
-  // mount) rather than directly in a useRef(...) call, which would technically re-evaluate
-  // Math.random()/performance.now() on every render even though only the first result is kept.
   const [{ shots, initialAzimuth }] = useState(() => ({ shots: shuffled(SHOTS), initialAzimuth: Math.random() * Math.PI * 2 }));
   const shotIndex = useRef(0);
   const shotStartMs = useRef(0);
@@ -102,7 +105,6 @@ export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number
   const handleEnd = () => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
-      // Re-entering cinematic mode always starts a fresh transition from wherever the user left the camera.
       transitionFrom.current = { pos: camera.position.clone(), target: controlsRef.current?.target.clone() ?? DEFAULT_TARGET.clone() };
       shotStartMs.current = performance.now();
       shotBaseAzimuth.current = Math.random() * Math.PI * 2;
@@ -138,7 +140,6 @@ export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number
       let heldMs = nowMs - shotStartMs.current;
 
       if (heldMs > shots[shotIndex.current].holdS * 1000) {
-        // Advance to the next shot and start a fresh transition from the current camera pose.
         transitionFrom.current = { pos: camera.position.clone(), target: controls.target.clone() };
         shotIndex.current = (shotIndex.current + 1) % shots.length;
         shotStartMs.current = nowMs;
@@ -147,19 +148,34 @@ export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number
       }
 
       const shot = shots[shotIndex.current];
-      const target = shot.target(frontLineRef.current);
+      const tx = shot.targetX(frontLineRef.current);
+      scratchTarget.set(tx, terrainHeight(tx, 0) + shot.targetLift, 0);
       const azimuth = shotBaseAzimuth.current + (heldMs / 1000) * shot.drift;
-      const desiredPos = new THREE.Vector3(target.x + Math.cos(azimuth) * shot.radius, target.y + shot.height, target.z + Math.sin(azimuth) * shot.radius);
+      scratchPos.set(scratchTarget.x + Math.cos(azimuth) * shot.radius, scratchTarget.y + shot.height, scratchTarget.z + Math.sin(azimuth) * shot.radius);
+      // never let the camera dip below the ground it's flying over
+      scratchPos.y = Math.max(scratchPos.y, terrainHeight(scratchPos.x, scratchPos.z) + 2.5);
 
       if (transitionFrom.current) {
         const t = Math.min(1, heldMs / (TRANSITION_S * 1000));
         const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        camera.position.lerpVectors(transitionFrom.current.pos, desiredPos, eased);
-        controls.target.lerpVectors(transitionFrom.current.target, target, eased);
+        camera.position.lerpVectors(transitionFrom.current.pos, scratchPos, eased);
+        controls.target.lerpVectors(transitionFrom.current.target, scratchTarget, eased);
         if (t >= 1) transitionFrom.current = null;
       } else {
-        camera.position.copy(desiredPos);
-        controls.target.copy(target);
+        camera.position.copy(scratchPos);
+        controls.target.copy(scratchTarget);
+      }
+
+      // Event punch-in: blend toward a tight, low combat framing on the front line.
+      const focus = getFocus(nowMs);
+      if (focus.active > 0.001) {
+        focusTarget.set(focus.x, terrainHeight(focus.x, 0) + 2, 0);
+        const fa = nowMs * 0.00012;
+        focusPos.set(focus.x + Math.cos(fa) * 13, focusTarget.y + 4.5, Math.sin(fa) * 13 + 6);
+        focusPos.y = Math.max(focusPos.y, terrainHeight(focusPos.x, focusPos.z) + 2.5);
+        const k = focus.active * 0.85;
+        camera.position.lerp(focusPos, k);
+        controls.target.lerp(focusTarget, k);
       }
     }
 
@@ -178,10 +194,10 @@ export default function CameraRig({ frontLineWorldX }: { frontLineWorldX: number
       ref={controlsRef}
       enableDamping
       dampingFactor={0.08}
-      minDistance={8}
-      maxDistance={80}
-      maxPolarAngle={Math.PI * 0.49}
-      minPolarAngle={0.1}
+      minDistance={7}
+      maxDistance={90}
+      maxPolarAngle={Math.PI * 0.495}
+      minPolarAngle={0.08}
       onStart={handleStart}
       onEnd={handleEnd}
     />

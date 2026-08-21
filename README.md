@@ -1,13 +1,16 @@
 # Shielded Territory War
 
 A live, theatrical, single-page visualization of Zcash's transparent vs.
-shielded pool dynamics: a green Shielded Fort and a red Transparent Fort
-face off across a live front line, each garrisoned by an army of zebras
-whose numbers track the real ZEC on that side — and every courier zebra
-that runs between the two forts is a **real, individual on-chain Zcash
-transaction**, complete with cannon-flash launch and camera shake for the
-big ones, animated the moment it's observed. Built with **Vite + React +
-TypeScript + Three.js (`@react-three/fiber`) + Tailwind CSS v4 + Zustand**.
+shielded pool dynamics, staged as a realistic low-poly battlefield: a green
+Shielded army and a red Transparent army — infantry, tanks and artillery —
+face off across a river and a live front line, dug into forts, watchtowers
+and sandbags on height-varied terrain. Every **courier soldier** that
+sprints between the forts is a **real, confirmed on-chain transaction**
+(cannon flash + camera shake + a big ZEC readout for the large ones); faint
+**ghost scouts** are real *pending* mempool transactions; and a central
+**Shielded Growth Monument** rises with real shielding. Built with **Vite +
+React + TypeScript + Three.js (`@react-three/fiber`) + `@react-three/
+postprocessing` + Tailwind CSS v4 + Zustand**.
 
 > **This is a theatrical visualization of public on-chain data. Not financial
 > advice.** No wallet connection, no trading, no login.

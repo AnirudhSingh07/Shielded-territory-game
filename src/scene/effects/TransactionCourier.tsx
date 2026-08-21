@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { getZebraGeometry } from '../geometry/zebraGeometry';
+import { getSoldierGeometry } from '../geometry/soldierGeometry';
+import { terrainHeight } from '../terrain/heightField';
 import Explosion from './Explosion';
 
 interface Props {
@@ -13,30 +14,36 @@ interface Props {
   onDone: () => void;
 }
 
-const SPEED = 10; // world units / second
+const SPEED = 15; // world units / second — a runner sprinting an order across the field
 
 /**
- * The visual heart of "this is real, not simulated": one courier zebra per
- * real on-chain transaction, physically running the length of the field
- * between the two forts the moment it's observed. Shielding transactions
- * run from the Transparent Fort to the Shielded Fort; unshielding runs the
- * other way. Arrival triggers an Explosion (and, for large transactions,
+ * The visual heart of "this is real, not simulated": one courier — a lone
+ * soldier — sprints the length of the field for each CONFIRMED on-chain
+ * transaction the moment it's observed. Shielding transactions run from the
+ * Transparent Fort to the Shielded Fort; unshielding runs the other way.
+ * Arrival triggers an Explosion (and, for large transactions,
  * EventEffectsManager also fires a cannon flash + camera shake).
+ *
+ * A modest emissive team wash is the ONE deliberate glow on a ground unit —
+ * it's how a confirmed-event runner reads apart from the static army. It is
+ * never applied to the standing armies or to the (ghostly) mempool scouts,
+ * so the three unit classes stay visually distinct.
  */
 export default function TransactionCourier({ from, to, color, scale, particleCount, onDone }: Props) {
-  const groupRef = useRef<THREE.Group>(null); // position + facing only — Explosion (a sibling) needs an un-shrunk frame
-  const meshRef = useRef<THREE.Mesh>(null); // the zebra body fades/shrinks on arrival, independent of the group
+  const groupRef = useRef<THREE.Group>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
   const ageRef = useRef(0);
   const [arrived, setArrived] = useState(false);
-  const geometry = getZebraGeometry();
 
   const start = new THREE.Vector3(...from);
   const end = new THREE.Vector3(...to);
+  // Shielding runs toward +X (the Shielded Fort); that direction picks the courier's team geometry.
+  const team = end.x > start.x ? 'shield' : 'transparent';
+  const geometry = useMemo(() => getSoldierGeometry(team), [team]);
+
   const distance = start.distanceTo(end);
-  const duration = THREE.MathUtils.clamp(distance / SPEED, 0.7, 3.2);
-  // The zebra geometry's local forward is -X (see zebraGeometry.ts's final rotateY(PI)); solving
-  // for the rotation.y that points that vector along the real travel direction (dx, dz) gives
-  // atan2(dz, -dx) rather than the more common atan2(dz, dx) you'd use for a +X-forward model.
+  const duration = THREE.MathUtils.clamp(distance / SPEED, 0.7, 3.0);
+  // Soldier geometry's local forward is -X; the rotation.y aligning it with travel (dx,dz) is atan2(dz, -dx).
   const facing = Math.atan2(end.z - start.z, -(end.x - start.x));
 
   useFrame((_, delta) => {
@@ -45,8 +52,7 @@ export default function TransactionCourier({ from, to, color, scale, particleCou
     const t = Math.min(1, ageRef.current / duration);
     const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     const pos = start.clone().lerp(end, eased);
-    pos.y += Math.sin(t * Math.PI) * 0.9 * scale; // little running arc
-    pos.y += Math.abs(Math.sin(ageRef.current * 9)) * 0.1; // gallop bob
+    pos.y = terrainHeight(pos.x, pos.z) + Math.abs(Math.sin(ageRef.current * 11)) * 0.14; // follow ground + run bob
     groupRef.current.position.copy(pos);
     if (meshRef.current) {
       const fade = t > 0.85 ? 1 - (t - 0.85) / 0.15 : 1;
@@ -59,10 +65,10 @@ export default function TransactionCourier({ from, to, color, scale, particleCou
     <group ref={groupRef} position={from} rotation={[0, facing, 0]}>
       {!arrived && (
         <mesh ref={meshRef} geometry={geometry} scale={scale} castShadow>
-          <meshStandardMaterial vertexColors emissive={color} emissiveIntensity={0.55} roughness={0.5} />
+          <meshStandardMaterial vertexColors emissive={color} emissiveIntensity={0.4} roughness={0.7} />
         </mesh>
       )}
-      {arrived && <Explosion position={[0, 0.4, 0]} color={color} particleCount={particleCount} scale={scale * 0.8} onDone={onDone} />}
+      {arrived && <Explosion position={[0, 0.5, 0]} color={color} particleCount={particleCount} scale={scale * 0.8} onDone={onDone} />}
     </group>
   );
 }

@@ -1,13 +1,73 @@
 # Shielded Territory War — Project Details
 
 A live theatrical visualization of Zcash's transparent vs. shielded pool
-dynamics: two forts, two zebra armies, and a front line driven entirely by
-real, individually observed on-chain transactions. This file is a plain-text
-companion to `README.md` — everything about how the project is built,
-exactly as it stands in the repo, for your own research.
+dynamics: a realistic low-poly battlefield with two armies, a front line,
+and a Shielded Growth Monument — all driven by real, individually observed
+on-chain transactions. This file is a plain-text companion to `README.md`.
 
 Branch: `feat/shielded-territory-war`
 Repo: https://github.com/AnirudhSingh07/Shielded-territory-game
+
+---
+
+## 0. War-scene overhaul (current state — read this first)
+
+The project was rebuilt from a stylized "zebra" prototype into a realistic
+battlefield. Some deeper sections below still describe the earlier zebra /
+radial-map iteration; where they conflict, **this section is authoritative.**
+
+**Units (realistic low-poly, muted military palettes, InstancedMesh):**
+- `scene/geometry/soldierGeometry.ts` — helmeted infantry, olive-drab for
+  the Shielded army, khaki/maroon for the Transparent army. Team identity is
+  the *palette*, not a neon tint (no per-instance recolour).
+- `scene/geometry/vehicleGeometry.ts` — tanks + towed artillery, same
+  team-palette approach.
+- `scene/Army.tsx` — instances soldiers + a rank of tanks + a few artillery
+  per side, staged between fort and front line on the terrain, clear of the
+  river, with idle bob/sway. Counts derive from real ZEC (`zecToUnitCount`).
+
+**Environment (all sit on one shared height-field):**
+- `scene/terrain/heightField.ts` — the single source of ground elevation +
+  the meandering river channel; every unit/prop/fort samples it.
+- `scene/env/Terrain.tsx` (displaced vertex-coloured mesh), `River.tsx`
+  (flowing `WaterMaterial` shader), `Vegetation.tsx` (instanced trees/bushes/
+  rocks), `Structures.tsx` (bridges, houses/ruins, watchtowers, sandbags).
+- `scene/Fort.tsx` — realistic concrete bunker: walls, guard towers, firing
+  slit, sandbag gate, waving team flag (the only team-coloured fort element).
+- `scene/Scene.tsx` — grounded dusk lighting (warm low sun + hemisphere),
+  toned-down bloom (only genuine highlights glow) + vignette.
+
+**Two continuous-engagement systems (both REAL data):**
+- **Mempool Scouts** — `data/providers/zcashMempool.ts` polls Blockchair's
+  `/zcash/mempool/transactions` (real pending txs with `shielded_value_delta`)
+  every ~8s; `RealFlowEngine.updateScouts()` reconciles them; `scene/
+  MempoolScouts.tsx` renders ghostly, translucent scout soldiers creeping
+  toward the line. On confirmation the engine drops the scout and the full
+  confirmed courier fires instead; if it leaves the mempool it fades. These
+  are real but explicitly *pending* — a distinct visual language from
+  confirmed units.
+- **Shielded Growth Monument** — `scene/GrowthMonument.tsx`, a crystal spire
+  whose *visible* growth is driven by net shielded ZEC observed live this
+  session (`RealFlowEngine.getSessionNetShieldedZec()`, starts at 0, only
+  real confirmed positive deltas raise it); the label reports the honest
+  anchored absolute total with a LIVE·ANCHORED badge. Flares on big real
+  shielding events.
+
+**Camera / effects:**
+- `scene/CameraRig.tsx` — war-focused cinematic shot list (low, front-line-
+  weighted), terrain-aware, with an event punch-in via `scene/cameraFocus.ts`
+  (a non-React signal, sibling to `cameraShake.ts`) when a major confirmed tx
+  lands.
+- `scene/effects/TransactionCourier.tsx` — the courier is now a running
+  soldier following the terrain. `FrontLineSkirmish.tsx` is cosmetic warm
+  muzzle-flashes along the line (never team-coloured, never confused with a
+  real event).
+
+**Resilience:** every real number shares Blockchair as a provider, so
+`useZecFeed.ts` now applies **exponential backoff** on failure/HTTP-430 and
+fetches decorative market stats less often. When rate-limited the data
+degrades honestly (STALE/OFFLINE badges, "no tx observed yet") while the
+cosmetic systems keep the battlefield alive — it never looks dead.
 
 ---
 

@@ -8,9 +8,12 @@ import type { BattleEvent } from '../../types';
 import { useUIStore } from '../../state/uiStore';
 import { playAlertHit, playCannonBoom, playShieldChime } from '../../audio/soundManager';
 import { triggerShake } from '../cameraShake';
+import { requestFrontLineFocus } from '../cameraFocus';
+import { terrainHeight } from '../terrain/heightField';
 
 interface Props {
   events: BattleEvent[];
+  frontLineWorldX: number;
   shieldColor: THREE.ColorRepresentation;
   transparentColor: THREE.ColorRepresentation;
 }
@@ -56,7 +59,11 @@ function gatePoint(x: number): [number, number, number] {
  * real ZEC amount (inspired by zec-battlefield.eh-f01.workers.dev's
  * dollar-amount wall banners) for extra "war effect" punch.
  */
-export default function EventEffectsManager({ events, shieldColor, transparentColor }: Props) {
+export default function EventEffectsManager({ events, frontLineWorldX, shieldColor, transparentColor }: Props) {
+  const frontLineRef = useRef(frontLineWorldX);
+  useEffect(() => {
+    frontLineRef.current = frontLineWorldX;
+  }, [frontLineWorldX]);
   // Couriers + flashes + banners are kept as one state object (rather than three separate
   // useState calls) so a new batch of real events triggers exactly one re-render.
   const [live, setLive] = useState<{ couriers: LiveCourier[]; flashes: LiveFlash[]; banners: LiveBanner[] }>({ couriers: [], flashes: [], banners: [] });
@@ -88,9 +95,10 @@ export default function EventEffectsManager({ events, shieldColor, transparentCo
       newCouriers.push({ key: e.id, from, to, color, particleCount: Math.round(particles * intensityMul), scale: scale * intensityMul, major });
 
       if (major) {
-        newFlashes.push({ key: `${e.id}_flash`, position: from, color, scale: scale * intensityMul });
-        newBanners.push({ key: `${e.id}_banner`, position: [toX, 6.5, 0], amountZec: Math.abs(e.netZec), side: e.side, txHash: e.txHash });
+        newFlashes.push({ key: `${e.id}_flash`, position: [fromX, terrainHeight(fromX, 0) + 1.6, from[2]], color, scale: scale * intensityMul });
+        newBanners.push({ key: `${e.id}_banner`, position: [toX, terrainHeight(toX, 0) + 9, 0], amountZec: Math.abs(e.netZec), side: e.side, txHash: e.txHash });
         triggerShake(0.35 + e.magnitude * 0.5);
+        requestFrontLineFocus(frontLineRef.current, 0.55 + e.magnitude * 0.45);
       }
 
       if (soundOn) {

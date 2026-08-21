@@ -9,7 +9,7 @@ import * as THREE from 'three';
  * from uTime on the GPU, no per-frame CPU work beyond bumping one uniform.
  */
 export const DustMaterial = shaderMaterial(
-  { uTime: 0, uColor: new THREE.Color('#6fa89f') },
+  { uTime: 0, uColor: new THREE.Color('#b3a488') },
   /* glsl */ `
     uniform float uTime;
     attribute float aSeed;
@@ -31,7 +31,7 @@ export const DustMaterial = shaderMaterial(
     varying float vFade;
     void main() {
       float d = length(gl_PointCoord - 0.5);
-      float alpha = smoothstep(0.5, 0.0, d) * vFade * 0.35;
+      float alpha = smoothstep(0.5, 0.0, d) * vFade * 0.16;
       if (alpha < 0.01) discard;
       gl_FragColor = vec4(uColor, alpha);
     }

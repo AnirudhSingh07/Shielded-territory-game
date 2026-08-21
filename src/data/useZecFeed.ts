@@ -1,62 +1,40 @@
 /**
  * Orchestrates the live feed: real total supply + real market stats + a real
- * transaction-by-transaction shielding/unshielding stream, reduced into one
- * `WarState`. This is the single place that knows about every data source —
- * see the individual provider files for exactly what's live vs. anchored.
+ * transaction-by-transaction shielding/unshielding stream (confirmed) + a
+ * faster real mempool stream (pending scouts), reduced into one `WarState`.
+ * This is the single place that knows about every data source.
  *
- * Startup sequence:
- *   1. Kick off total-supply + market fetches AND a bounded real-transaction
- *      backfill (up to ~90 real minutes of on-chain history) in parallel.
- *   2. Once the backfill settles, fix the accounting anchor
- *      (RealFlowEngine#finalizeAnchor) and start rendering.
- *   3. Every 20s afterward, pull the newest transactions, ingest any not
- *      already seen (dedup by hash), and refresh market stats. Total supply
- *      (daily-resolution upstream) is only re-polled every few minutes.
+ * Two independent loops:
+ *   - Confirmed loop (20s): total supply, market stats, newest confirmed
+ *     shielded transactions. Drives couriers, flows, momentum, the monument.
+ *   - Mempool loop (6s): pending shielded transactions. Drives the ghostly
+ *     scouts so the field stays busy between confirmations. Still real data,
+ *     explicitly flagged pending.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchLatestZecSupply } from './providers/coinMetrics';
 import { fetchBlockchairStats } from './providers/blockchair';
 import { backfillShieldedFlows, fetchLatestShieldedFlows } from './providers/zcashTransactions';
+import { fetchPendingShieldedFlows } from './providers/zcashMempool';
 import { RealFlowEngine } from './providers/realFlowEngine';
 import type { MarketSnapshot, SourceStatus, WarState } from '../types';
 
-const POLL_MS = 20_000; // within the requested 15-60s cadence
+const POLL_MS = 20_000; // confirmed loop base
+const POLL_MAX_MS = 120_000; // confirmed loop cap under backoff
+const MEMPOOL_POLL_MS = 8_000; // pending/scout loop base — toward the slow end to respect Blockchair rate limits
+const MEMPOOL_MAX_MS = 90_000; // mempool loop cap under backoff
 const SUPPLY_REFRESH_EVERY_N_POLLS = 12; // ~4 minutes; CoinMetrics is daily-resolution anyway
+const MARKET_REFRESH_EVERY_N_POLLS = 3; // market stats are decorative — fetch them less to spare the shared provider
 const BACKFILL_TARGET_MS = 90 * 60_000;
 const FALLBACK_TOTAL_SUPPLY = 16_830_000; // documented ballpark, used only if CoinMetrics is unreachable
 
-function buildState(
-  totalSupply: number,
-  supplyStatus: SourceStatus,
-  market: MarketSnapshot,
-  marketStatus: SourceStatus,
-  engine: RealFlowEngine,
-  nowMs: number,
-): WarState {
-  const fraction = engine.getFraction(nowMs, totalSupply);
-  const shieldedZec = fraction * totalSupply;
-  const transparentZec = totalSupply - shieldedZec;
-
-  return {
-    supply: { totalSupply, shieldedFraction: fraction, shieldedZec, transparentZec, timestamp: nowMs },
-    market,
-    flows: {
-      h1: engine.getFlowWindow(nowMs, 1),
-      h24: engine.getFlowWindow(nowMs, 24),
-      d7: engine.getFlowWindow(nowMs, 24 * 7),
-    },
-    frontLine: fraction,
-    momentum: engine.getMomentum(nowMs),
-    momentumState: engine.getMomentumState(nowMs),
-    events: engine.getRecentEvents(),
-    sources: {
-      supply: supplyStatus,
-      market: marketStatus,
-      flows: engine.hasAnchor() ? 'anchored' : 'loading',
-    },
-  };
+/** Exponential backoff so a rate-limited (HTTP 430) provider isn't hammered and can recover. */
+function backoff(base: number, fails: number, cap: number): number {
+  return Math.min(cap, Math.round(base * Math.pow(1.8, Math.min(fails, 6))));
 }
+
+const EMPTY_MARKET: MarketSnapshot = { priceUsd: null, marketCapUsd: null, change24hPct: null, blockHeight: null, hashRate: null };
 
 export interface ZecFeed {
   state: WarState | null;
@@ -65,74 +43,110 @@ export interface ZecFeed {
 
 export function useZecFeed(): ZecFeed {
   const [state, setState] = useState<WarState | null>(null);
-  const engineRef = useRef<RealFlowEngine | null>(null);
-  const lastGoodSupplyRef = useRef<number>(FALLBACK_TOTAL_SUPPLY);
-  const pollCountRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let confirmedTimer: ReturnType<typeof setTimeout>;
+    let mempoolTimer: ReturnType<typeof setTimeout>;
     const engine = new RealFlowEngine();
-    engineRef.current = engine;
 
-    async function fetchSupply(): Promise<SourceStatus> {
-      try {
-        const point = await fetchLatestZecSupply();
-        lastGoodSupplyRef.current = point.totalSupply;
-        return 'live';
-      } catch {
-        return lastGoodSupplyRef.current === FALLBACK_TOTAL_SUPPLY ? 'error' : 'stale';
-      }
+    // last-good snapshots shared by both loops
+    let totalSupply = FALLBACK_TOTAL_SUPPLY;
+    let supplyStatus: SourceStatus = 'loading';
+    let market: MarketSnapshot = EMPTY_MARKET;
+    let marketStatus: SourceStatus = 'loading';
+    let mempoolStatus: SourceStatus = 'loading';
+    let pollCount = 0;
+    let confirmedFails = 0;
+    let mempoolFails = 0;
+
+    function rebuild() {
+      if (cancelled) return;
+      const nowMs = Date.now();
+      const fraction = engine.getFraction(nowMs, totalSupply);
+      const shieldedZec = fraction * totalSupply;
+      setState({
+        supply: { totalSupply, shieldedFraction: fraction, shieldedZec, transparentZec: totalSupply - shieldedZec, timestamp: nowMs },
+        market,
+        flows: { h1: engine.getFlowWindow(nowMs, 1), h24: engine.getFlowWindow(nowMs, 24), d7: engine.getFlowWindow(nowMs, 24 * 7) },
+        frontLine: fraction,
+        momentum: engine.getMomentum(nowMs),
+        momentumState: engine.getMomentumState(nowMs),
+        events: engine.getRecentEvents(),
+        scouts: engine.getScouts(),
+        sessionNetShieldedZec: engine.getSessionNetShieldedZec(),
+        sources: {
+          supply: supplyStatus,
+          market: marketStatus,
+          flows: engine.hasAnchor() ? 'anchored' : 'loading',
+          mempool: mempoolStatus,
+        },
+      });
     }
 
-    async function fetchMarket(): Promise<{ market: MarketSnapshot; status: SourceStatus }> {
+    async function fetchSupply() {
       try {
-        return { market: await fetchBlockchairStats(), status: 'live' };
+        totalSupply = (await fetchLatestZecSupply()).totalSupply;
+        supplyStatus = 'live';
       } catch {
-        return { market: { priceUsd: null, marketCapUsd: null, change24hPct: null, blockHeight: null, hashRate: null }, status: 'error' };
+        supplyStatus = totalSupply === FALLBACK_TOTAL_SUPPLY ? 'error' : 'stale';
+      }
+    }
+    async function fetchMarket() {
+      try {
+        market = await fetchBlockchairStats();
+        marketStatus = 'live';
+      } catch {
+        marketStatus = 'error';
       }
     }
 
     async function bootstrap() {
-      const [supplyStatus, marketResult] = await Promise.all([
+      await Promise.all([
         fetchSupply(),
         fetchMarket(),
-        backfillShieldedFlows(BACKFILL_TARGET_MS).then(({ events }) => {
-          engine.ingest(events);
-        }),
+        backfillShieldedFlows(BACKFILL_TARGET_MS).then(({ events }) => engine.ingest(events)),
       ]);
       engine.finalizeAnchor();
       if (cancelled) return;
-      setState(buildState(lastGoodSupplyRef.current, supplyStatus, marketResult.market, marketResult.status, engine, Date.now()));
-      scheduleNext();
+      rebuild();
+      confirmedTimer = setTimeout(() => void confirmedPoll(), POLL_MS);
+      void mempoolPoll(); // start the fast loop immediately
     }
 
-    function scheduleNext() {
-      timer = setTimeout(() => void pollOnce(), POLL_MS);
-    }
-
-    async function pollOnce() {
-      pollCountRef.current += 1;
-      const shouldRefreshSupply = pollCountRef.current % SUPPLY_REFRESH_EVERY_N_POLLS === 0;
-
-      const [supplyStatus, marketResult, freshTxs] = await Promise.all([
-        shouldRefreshSupply ? fetchSupply() : Promise.resolve<SourceStatus>('live'),
-        fetchMarket(),
-        fetchLatestShieldedFlows().catch(() => []),
-      ]);
+    async function confirmedPoll() {
+      pollCount += 1;
+      let txOk = true;
+      const jobs: Promise<unknown>[] = [fetchLatestShieldedFlows().then((txs) => engine.ingest(txs)).catch(() => { txOk = false; })];
+      if (pollCount % MARKET_REFRESH_EVERY_N_POLLS === 0) jobs.push(fetchMarket());
+      if (pollCount % SUPPLY_REFRESH_EVERY_N_POLLS === 0) jobs.push(fetchSupply());
+      await Promise.all(jobs);
       if (cancelled) return;
+      confirmedFails = txOk ? 0 : confirmedFails + 1;
+      rebuild();
+      confirmedTimer = setTimeout(() => void confirmedPoll(), backoff(POLL_MS, confirmedFails, POLL_MAX_MS));
+    }
 
-      engine.ingest(freshTxs);
-      setState((prev) =>
-        buildState(lastGoodSupplyRef.current, shouldRefreshSupply ? supplyStatus : (prev?.sources.supply ?? 'live'), marketResult.market, marketResult.status, engine, Date.now()),
-      );
-      scheduleNext();
+    async function mempoolPoll() {
+      try {
+        const pending = await fetchPendingShieldedFlows();
+        engine.updateScouts(pending, Date.now());
+        mempoolStatus = 'live';
+        mempoolFails = 0;
+      } catch {
+        mempoolStatus = 'error';
+        mempoolFails += 1;
+      }
+      if (cancelled) return;
+      rebuild();
+      mempoolTimer = setTimeout(() => void mempoolPoll(), backoff(MEMPOOL_POLL_MS, mempoolFails, MEMPOOL_MAX_MS));
     }
 
     void bootstrap();
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      clearTimeout(confirmedTimer);
+      clearTimeout(mempoolTimer);
     };
   }, []);
 
