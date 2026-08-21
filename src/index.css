@@ -1,0 +1,162 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+ * Theme tokens — "Shielded Territory War"
+ * Dark cyberpunk / signals-intelligence aesthetic with Zcash green (#F4B728 is
+ * the brand gold, but the community "privacy green" #00C389 reads better next
+ * to the transparent-pool red on a dark battle-map, so we lead with that and
+ * use the gold only as a rare accent for high-value events / the wordmark).
+ * ------------------------------------------------------------------------- */
+@theme {
+  --color-void: #05070a;
+  --color-void-2: #0a0e14;
+  --color-panel: #0d131b;
+  --color-panel-2: #121a24;
+  --color-line: #1e2a35;
+  --color-line-soft: #16202a;
+
+  --color-shield: #00e5a0;
+  --color-shield-dim: #0a5c47;
+  --color-shield-glow: #5dffce;
+
+  /* Named "crimson", not "transparent" — Tailwind v4 reserves --color-transparent
+     for the literal CSS `transparent` keyword; redefining it would silently break
+     every bg-transparent/border-transparent/etc. utility used anywhere in the app. */
+  --color-crimson: #ff3b5c;
+  --color-crimson-dim: #6b1626;
+  --color-crimson-glow: #ff8fa3;
+
+  --color-gold: #f4b728;
+  --color-ink: #cfe3e0;
+  --color-ink-dim: #6c8a8a;
+  --color-ink-faint: #3c4f52;
+
+  --font-display: 'Rajdhani', 'Zebra', var(--font-sans);
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-shield) 35%, transparent);
+  color: white;
+}
+
+/* thin scrollbars for the activity feed / any overflow panels */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 4px;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+@keyframes scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(150%);
+  }
+  100% {
+    transform: translateX(150%);
+  }
+}
+
+@keyframes flicker-in {
+  0% {
+    opacity: 0;
+    filter: blur(6px);
+  }
+  60% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.animate-flicker-in {
+  animation: flicker-in 0.6s ease-out both;
+}
+
+@keyframes rise-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.animate-rise-fade {
+  animation: rise-fade 6s ease-in-out both;
+}
+
+.text-shadow-glow {
+  text-shadow: 0 0 12px currentColor;
+}
+
+.panel {
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  border: 1px solid var(--color-line);
+  backdrop-filter: blur(10px);
+}
+
+.hud-clip {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
