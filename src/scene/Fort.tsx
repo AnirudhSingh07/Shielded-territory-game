@@ -12,15 +12,29 @@ const PALETTE = {
   transparent: { base: new THREE.Color('#ff3b5c'), glow: new THREE.Color('#ff9db0') },
 };
 
+const FLAME_COLOR = new THREE.Color('#ffb347');
+
+/** Cheap noise-ish flicker: a few off-frequency sines summed, so it never looks like a clean loop. */
+function flicker(t: number, phase: number): number {
+  return 0.7 + 0.18 * Math.sin(t * 9 + phase) + 0.08 * Math.sin(t * 23 + phase * 2.7) + 0.05 * Math.sin(t * 5.3 + phase * 0.4);
+}
+
 /**
  * A stronghold at each end of the field: the green Shielded Fort defends
  * the privacy pool, the red Transparent Fort defends the exposed one. Real
  * shielding transactions launch a courier + cannon flash from the
  * transparent fort toward the shielded fort; unshielding runs it back.
+ *
+ * The torches, banners, and floating core all animate continuously and
+ * independently of any data — the point is that the fort never looks
+ * "frozen" during a real quiet stretch between transactions.
  */
 export default function Fort({ side, x }: Props) {
   const coreRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
+  const bannerRefs = useRef<Array<THREE.Group | null>>([]);
+  const flameRefs = useRef<Array<THREE.Mesh | null>>([]);
+  const flameLightRefs = useRef<Array<THREE.PointLight | null>>([]);
   const { base, glow } = PALETTE[side];
   const faceInward = side === 'shield' ? Math.PI : 0; // cosmetic only, towers are radially symmetric
 
@@ -31,6 +45,21 @@ export default function Fort({ side, x }: Props) {
       coreRef.current.position.y = 6.2 + Math.sin(t * 0.8 + x) * 0.25;
     }
     if (ringRef.current) ringRef.current.rotation.z = -t * 0.15;
+
+    bannerRefs.current.forEach((g, i) => {
+      if (!g) return;
+      g.rotation.z = Math.sin(t * 1.4 + i * 2.1 + x) * 0.14;
+      g.rotation.y = Math.sin(t * 0.9 + i * 3.3 + x) * 0.08;
+    });
+    flameRefs.current.forEach((m, i) => {
+      if (!m) return;
+      const f = flicker(t, i * 4.2 + x);
+      m.scale.set(0.85 + f * 0.3, 1 + f * 0.5, 0.85 + f * 0.3);
+    });
+    flameLightRefs.current.forEach((l, i) => {
+      if (!l) return;
+      l.intensity = 2.2 * flicker(t, i * 4.2 + x + 1.7);
+    });
   });
 
   const towerOffsets: Array<[number, number]> = [
@@ -38,6 +67,10 @@ export default function Fort({ side, x }: Props) {
     [-1.7, 1.7],
     [1.7, -1.7],
     [1.7, 1.7],
+  ];
+  const torchOffsets: Array<[number, number]> = [
+    [3.4, -2.6],
+    [3.4, 2.6],
   ];
 
   return (
@@ -88,9 +121,9 @@ export default function Fort({ side, x }: Props) {
         <meshBasicMaterial color={glow} transparent opacity={0.6} toneMapped={false} />
       </mesh>
 
-      {/* banner/flag pair flanking the gate */}
-      {[-1.1, 1.1].map((fz) => (
-        <group key={fz} position={[2.8, 0, fz]}>
+      {/* banner/flag pair flanking the gate — sways continuously, see useFrame above */}
+      {[-1.1, 1.1].map((fz, i) => (
+        <group key={fz} position={[2.8, 0, fz]} ref={(el) => { bannerRefs.current[i] = el; }}>
           <mesh position={[0, 1.2, 0]}>
             <cylinderGeometry args={[0.03, 0.03, 2.4, 5]} />
             <meshStandardMaterial color="#1a1f1c" roughness={0.8} />
@@ -99,6 +132,25 @@ export default function Fort({ side, x }: Props) {
             <planeGeometry args={[0.6, 0.42]} />
             <meshStandardMaterial color={base} emissive={base} emissiveIntensity={0.5} side={THREE.DoubleSide} />
           </mesh>
+        </group>
+      ))}
+
+      {/* flickering gate torches — continuous, independent of any data */}
+      {torchOffsets.map(([tx, tz], i) => (
+        <group key={i} position={[tx, 0, tz]}>
+          <mesh position={[0, 0.9, 0]} castShadow>
+            <cylinderGeometry args={[0.045, 0.06, 1.8, 6]} />
+            <meshStandardMaterial color="#1a1f1c" roughness={0.85} />
+          </mesh>
+          <mesh position={[0, 1.85, 0]}>
+            <cylinderGeometry args={[0.16, 0.1, 0.14, 8]} />
+            <meshStandardMaterial color="#2a221a" roughness={0.8} metalness={0.2} />
+          </mesh>
+          <mesh ref={(el) => { flameRefs.current[i] = el; }} position={[0, 2.05, 0]}>
+            <coneGeometry args={[0.11, 0.34, 8]} />
+            <meshBasicMaterial color={FLAME_COLOR} transparent opacity={0.9} toneMapped={false} />
+          </mesh>
+          <pointLight ref={(el) => { flameLightRefs.current[i] = el; }} position={[0, 2.1, 0]} color={FLAME_COLOR} intensity={2} distance={7} decay={2} />
         </group>
       ))}
 

@@ -117,6 +117,36 @@ All of this lives in `src/logic/mapping.ts`, fully commented:
   30 real minutes and classifies into `privacy-surge / privacy-advancing /
   stalemate / transparent-counter / transparent-surge`.
 
+### Built to be left on — continuous motion that isn't data
+
+Real transactions are the *events*; the world around them needs to stay
+alive on its own so a quiet stretch on-chain never reads as a frozen page.
+None of the following represents any data point — it's set dressing, same
+as a video game's ambient environment:
+
+- **Cinematic camera** (`CameraRig.tsx`) — five preset shots (wide,
+  front-line sweep, a close pass on each fort, high overview), shuffled per
+  session, each held ~25–35s with its own slow continuous drift and a smooth
+  eased transition into the next. Paused the moment you drag, resumes a few
+  seconds after you let go.
+- **AmbientDust.tsx** — a couple hundred GPU-animated drifting motes across
+  the field, entirely shader-driven (one `uTime` uniform bump per frame, no
+  CPU work).
+- **Fort torches** (`Fort.tsx`) — flickering flame + point light per gate,
+  driven by summed off-frequency sines so it never looks like a clean loop;
+  banners sway continuously too.
+- **FrontLineSkirmish.tsx** — small, quiet spark clashes at random points
+  along the line every couple of seconds. Deliberately much smaller/quieter
+  than a real `TransactionCourier` arrival (no banner, no sound, no
+  activity-feed entry) so the two are never visually confused — this is
+  the one place in the codebase that's allowed to just make something up,
+  and it's fenced off accordingly.
+- **Horizon.tsx** — a static distant mountain-ridge silhouette so the sky
+  has somewhere to meet the ground.
+- **Post-processing** (`@react-three/postprocessing`) — bloom (so the
+  fort cores, army glow, and front line actually glow instead of just
+  being flat-colored emissive shapes) + a vignette for cinematic framing.
+
 ---
 
 ## 2. Project structure

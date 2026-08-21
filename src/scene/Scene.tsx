@@ -1,13 +1,17 @@
 import { Canvas } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
+import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import Battlefield from './Battlefield';
 import FogOfWar from './FogOfWar';
 import FrontLine from './FrontLine';
 import Fort from './Fort';
 import Army from './Army';
+import AmbientDust from './AmbientDust';
+import Horizon from './Horizon';
 import CameraRig from './CameraRig';
 import EventEffectsManager from './effects/EventEffectsManager';
+import FrontLineSkirmish from './effects/FrontLineSkirmish';
 import type { WarState } from '../types';
 import { frontLineToWorldX, SHIELD_FORT_X, shieldedFractionToFogOpacity, TRANSPARENT_FORT_X, zecToUnitCount } from '../logic/mapping';
 
@@ -52,6 +56,8 @@ export default function Scene({ state }: { state: WarState }) {
       <pointLight position={[frontLineWorldX, 6, 0]} intensity={2} color={frontColor} distance={32} decay={2} />
 
       <Stars radius={100} depth={40} count={2200} factor={2.4} saturation={0} fade speed={0.4} />
+      <Horizon />
+      <AmbientDust />
 
       <Battlefield frontLineWorldX={frontLineWorldX} />
       <FogOfWar frontLineWorldX={frontLineWorldX} opacity={fogOpacity} />
@@ -64,8 +70,14 @@ export default function Scene({ state }: { state: WarState }) {
       <Army side="transparent" count={transparentUnits} frontLineWorldX={frontLineWorldX} color={TRANSPARENT_COLOR} emissiveColor={TRANSPARENT_GLOW} push={transparentPush} />
 
       <EventEffectsManager events={state.events} shieldColor={SHIELD_GLOW} transparentColor={TRANSPARENT_GLOW} />
+      <FrontLineSkirmish worldX={frontLineWorldX} shieldGlow={SHIELD_GLOW} transparentGlow={TRANSPARENT_GLOW} />
 
-      <CameraRig />
+      <CameraRig frontLineWorldX={frontLineWorldX} />
+
+      <EffectComposer multisampling={0}>
+        <Bloom mipmapBlur luminanceThreshold={0.18} luminanceSmoothing={0.25} intensity={0.85} radius={0.55} />
+        <Vignette eskil={false} offset={0.28} darkness={0.6} />
+      </EffectComposer>
     </Canvas>
   );
 }
