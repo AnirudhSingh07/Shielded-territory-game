@@ -31,9 +31,11 @@
   --color-ink-dim: #6c8a8a;
   --color-ink-faint: #3c4f52;
 
-  --font-display: 'Rajdhani', 'Zebra', var(--font-sans);
+  /* Self-hosted via @fontsource (see main.tsx) — no CDN dependency at runtime. */
+  --font-display: 'Rajdhani', var(--font-sans);
+  --font-cinematic: 'Orbitron', var(--font-display);
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: system-ui, -apple-system, sans-serif;
 }
 
 :root {

@@ -209,9 +209,11 @@ Upload the contents of `dist/` after running `npm run build`.
   streams in behind it.
 - **No external runtime assets:** all sound is synthesized live via the Web
   Audio API, the fort/zebras are procedural geometry (no downloaded 3D
-  models), and lighting is procedural — nothing depends on a CDN being
-  reachable at runtime beyond the three data APIs above (which degrade
-  gracefully if blocked, e.g. by an ad-blocker or offline use).
+  models), display fonts (Rajdhani + Orbitron) are self-hosted via
+  `@fontsource` rather than a Google Fonts `<link>`, and lighting is
+  procedural — nothing depends on a CDN being reachable at runtime beyond
+  the three data APIs above (which degrade gracefully if blocked, e.g. by
+  an ad-blocker or offline use).
 
 ---
 
